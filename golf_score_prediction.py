@@ -1172,147 +1172,42 @@ def GetPlayerStatsESPN(player_list, player_stats_csv):
 
 
 def GetPlayerStatsPGATourWebsite(player_list, pga_player_stats_2018, euro_player_stats_2018):
-    ''' PGA stats list '''
-    pga_stats_list = []
-    pga_sg_tee_list = []; pga_sg_app_list = []; pga_sg_aro_list = []
-    pga_sg_putt_list = []; pga_drive_dist_list = []; pga_drive_acc_list = []
-    with open(pga_player_stats_2018, 'r') as tsv:
-        pga_stats_object = csv.reader(tsv, dialect='excel-tab')
-        for i, line in enumerate(pga_stats_object):
-            if i == 0:
-                pga_cols = list(line[0].split(','))
-            else:
-                row = list(line[0].split(','))
-                #print('length row:\n', len(row))
-                pga_sg_tee_list.append(row[0:3])
-                pga_sg_app_list.append(row[3:6])
-                pga_sg_aro_list.append(row[6:9])
-                pga_sg_putt_list.append(row[9:12])
-                pga_drive_dist_list.append(row[12:14])
-                pga_drive_acc_list.append(row[14:16])
-                
-                pga_stats_list.append(row)
-    tsv.close()
+    df_pga = pd.read_csv('2018_player_stats_pga_csv')
+    print('df_pga:\n', df_pga)
+    df_euro = pd.read_csv('2018_player_stats_euro_csv')
+    print('df_euro:\n', df_euro)
 
-    ''' Euro stats list: Last names appear before first and are all caps, formatting
-        is required to '''
-    euro_stats_list = []
-    euro_sg_tee_list = []; euro_sg_app_list = []; euro_sg_aro_list = []
-    euro_sg_putt_list = []; euro_drive_dist_list = []; euro_drive_acc_list = []
-    with open(euro_player_stats_2018, 'r') as tsv:
-        euro_stats_object = csv.reader(tsv, dialect='excel-tab')
-        for i, line in enumerate(euro_stats_object):
-            if i == 0:
-                euro_cols = list(line[0].split(','))
-            else:
-                row = list(line[0].split(','))
-                euro_sg_tee_list.append(row[0:3])
-                euro_sg_app_list.append(row[3:6])
-                euro_sg_aro_list.append(row[6:9])
-                euro_sg_putt_list.append(row[9:12])
-                euro_drive_dist_list.append(row[12:14])
-                euro_drive_acc_list.append(row[14:16])
+    euro_tee_names_list = df_euro['PlayerTeeSG'].values.tolist()
+    euro_app_names_list = df_euro['PlayerAppSG'].values.tolist()
+    euro_aro_names_list = df_euro['PlayerAroSG'].values.tolist()
+    euro_putt_names_list = df_euro['PlayerPuttSG'].values.tolist()
+    euro_drive_dist_names_list = df_euro['PlayerDriveDist'].values.tolist()
+    euro_drive_acc_names_list = df_euro['PlayerDriveAcc'].values.tolist()
 
-                euro_stats_list.append(row)
+    new_name_list = []
+    for name in euro_tee_names_list:
+        if type(name) == str:
+            #print('type(name):', type(name))
+            #print('name:', name)
+            #print('name:', name)
+            names = list(name.split(' '))
+            #print('names:', names)
+            first = names[1]; last = names[0]
+            #print('first:', first); print('last:', last)
+            first = unidecode(first); last = unidecode(last)
+            first = first.lower(); last = last.lower()
+            new_name = first + ' ' + last
+            new_name = new_name.title()
+            new_name_list.append(new_name)
+            #print(new_name_list)
+        else:
+            new_name_list.append(np.NaN)
 
-    tsv.close()
-
-    euro_lists = [euro_sg_tee_list,euro_sg_app_list,euro_sg_aro_list,euro_sg_putt_list]
-    euro_sg_tee_new_list = []; euro_sg_app_new_list = []; euro_sg_aro_new_list = []; euro_sg_putt_new_list = []; euro_drive_dist_new_list = []; euro_drive_acc_new_list = []
-    new_euro_lists = [euro_sg_tee_new_list,euro_sg_app_new_list,euro_sg_aro_new_list,euro_sg_putt_new_list,euro_drive_dist_new_list,euro_drive_acc_new_list]
-    for euro_list, new_euro_list in zip(euro_lists, new_euro_lists):
-        for row in euro_list:
-            #print('row[0:2]:\n', row[0:2])
-            if all(row):
-                row[0] = unidecode(row[0]); row[1] = unidecode(row[1]);
-                last = row[0].lower().strip()
-                first = row[1].lower().strip()
-                name = first + ' ' + last
-                name = name.title()
-                #table = str.maketrans({key: None for key in string.punctuation})
-                #name = name.translate(table)
-                stat = row[2]
-                new_row = [name,stat]
-                #print('new_row:\n', new_row)
-                new_euro_list.append(new_row)
-                #print(new_euro_list)
-
-    print('pga_sg_tee_list:\n', pga_sg_tee_list)
-    print('euro_sg_tee_new_list:\n', euro_sg_tee_new_list)
-    
-    sg_tee_list = pga_sg_tee_list + euro_sg_tee_new_list
-    #print('sg_tee_list:\n', sg_tee_list)
-    sg_app_list = pga_sg_app_list + euro_sg_app_new_list
-    sg_aro_list = pga_sg_aro_list + euro_sg_aro_new_list
-    sg_putt_list = pga_sg_putt_list + euro_sg_putt_new_list
-    drive_dist_list = pga_drive_dist_list + euro_drive_dist_new_list
-    drive_acc_list = pga_drive_acc_list + euro_drive_acc_new_list
-    
-##    cols = pga_cols # Assumes pga_cols and euro_cols are the same. Only need one.
-##    print('length of cols:', len(cols))
-##    print('length of stats_list:\n', len(stats_list[0]))
-##    print('stats_list[0]:\n', stats_list[0])
-##    #df = pd.DataFrame(stats_list, columns=cols)
-
-    df = pd.DataFrame(sg_tee_list, columns=['Player','TeeSG'])
-    print('df TeeSG:\n', df)
-    
-    return cols
-
-    # Want all players in the tournament from the stats df
-    tournament_sg_tee_list = [p_stat for p_stat in sg_tee_list if any(player in p_stat for player in player_list)]
-    tournament_sg_app_list = [p_stat for p_stat in sg_app_list if any(player in p_stat for player in player_list)]
-    tournament_sg_aro_list = [p_stat for p_stat in sg_aro_list if any(player in p_stat for player in player_list)]
-    tournament_sg_putt_list = [p_stat for p_stat in sg_putt_list if any(player in p_stat for player in player_list)]
-    tournament_drive_dist_list = [p_stat for p_stat in drive_dist_list if any(player in p_stat for player in player_list)]
-    tournament_drive_acc_list = [p_stat for p_stat in drive_acc_list if any(player in p_stat for player in player_list)]
-
-    df_sg_tee = pd.DataFrame(tournament_sg_tee_list, columns=cols[0:3])
-    df_sg_app = pd.DataFrame(tournament_sg_app_list, columns=cols[3:6])
-    df_sg_aro = pd.DataFrame(tournament_sg_aro_list, columns=cols[6:9])
-    df_sg_putt = pd.DataFrame(tournament_sg_putt_list, columns=cols[9:12])
-    df_drive_dist = pd.DataFrame(tournament_drive_dist_list, columns=cols[12:14])
-    df_drive_acc = pd.DataFrame(tournament_drive_acc_list, columns=cols[14:16])
-
-    df_sg_tee.sort_values('PlayerTeeSG', inplace=True)
-    df_sg_app.sort_values('PlayerAppSG', inplace=True)
-    df_sg_aro.sort_values('PlayerAroSG', inplace=True)
-    df_sg_putt.sort_values('PlayerPuttSG', inplace=True)
-    df_drive_dist.sort_values('PlayerDriveDist', inplace=True)
-    df_drive_acc.sort_values('PlayerDriveAcc', inplace=True)
-
-##    print(df_sg_tee['PlayerTeeSG'].equals(df_sg_app['PlayerAppSG']))
-    sg_tee_sorted_list = df_sg_tee['PlayerTeeSG'].values.tolist()
-    sg_app_sorted_list = df_sg_app['PlayerAppSG'].values.tolist()
-    sg_aro_sorted_list = df_sg_aro['PlayerAroSG'].values.tolist()
-    sg_putt_sorted_list = df_sg_putt['PlayerPuttSG'].values.tolist()
-    drive_dist_sorted_list = df_drive_dist['PlayerDriveDist'].values.tolist()
-    drive_acc_sorted_list = df_drive_acc['PlayerDriveAcc'].values.tolist()
-    stats_player_list = [[a,b,c,d,e,f] for a,b,c,d,e,f in zip(sg_tee_sorted_list, sg_app_sorted_list, sg_aro_sorted_list, sg_putt_sorted_list, drive_dist_sorted_list, drive_acc_sorted_list)]
-    print('stats_player_list:\n', stats_player_list)
-    df_combined = pd.DataFrame(stats_player_list, columns=['PlayerTeeSG','PlayerAppSG','PlayerAroSG','PlayerPuttSG','PlayerDriveDist','PlayerDriveAcc'])
-    print('df_combined:\n', df_combined.to_string())
-##    print(df_sg_app['PlayerAppSG'].equals(df_sg_aro['PlayerAroSG']))
-##    print(df_sg_aro['PlayerAroSG'].equals(df_sg_putt['PlayerPuttSG']))
-##    print(df_sg_putt['PlayerPuttSG'].equals(df_drive_dist['PlayerDriveDist']))
-##    print(df_drive_dist['PlayerDriveDist'].equals(df_drive_acc['PlayerDriveAcc']))
-    print('Tournament players not in PGA player stats list:\n', list(set(player_list) - set(sg_tee_sorted_list)))
-    
-##    print('df tee:\n', df_sg_tee)
-##    print('df app:\n', df_sg_app)
-##    print('df aro:\n', df_sg_aro)
-##    print('df putt:\n', df_sg_putt)
-##    print('df drive dist:\n', df_drive_dist)
-##    print('df drive acc:\n', df_drive_acc)
-
-
-    
-
-    return df
-                
-    # Get player names and ids: https://www.pgatour.com/players.html
-    # Create url unique to each player (e.g. Martin Kaymer): https://www.pgatour.com/players/player.27408.martin-kaymer.html
-    # Get relevant stats including:
+    df_euro.drop(columns=['PlayerTeeSG'], inplace=True)
+    df_euro.insert(loc=0, column='PlayerTeeSG', value=new_name_list)
+    print('df_euro:', df_euro)
+   
+    return df_euro
     
 
 
