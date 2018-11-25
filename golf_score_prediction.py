@@ -1184,12 +1184,13 @@ def GetPlayerStatsPGATourWebsite(player_list, pga_player_stats_2018, euro_player
             else:
                 row = list(line[0].split(','))
                 #print('length row:\n', len(row))
-                pga_sg_tee_list.append(row[0:3])
-                pga_sg_app_list.append(row[3:6])
-                pga_sg_aro_list.append(row[6:9])
-                pga_sg_putt_list.append(row[9:12])
-                pga_drive_dist_list.append(row[12:14])
-                pga_drive_acc_list.append(row[14:16])
+                pga_sg_tee_list.append(row[0:2])
+                pga_sg_app_list.append(row[2:4])
+                pga_sg_aro_list.append(row[4:6])
+                pga_sg_putt_list.append(row[6:8])
+                pga_drive_dist_list.append(row[8:10])
+                row[11] = row[11]/100 # Changing percent to decimal
+                pga_drive_acc_list.append(row[10:12])
                 
                 pga_stats_list.append(row)
     tsv.close()
@@ -1220,6 +1221,7 @@ def GetPlayerStatsPGATourWebsite(player_list, pga_player_stats_2018, euro_player
     euro_lists = [euro_sg_tee_list,euro_sg_app_list,euro_sg_aro_list,euro_sg_putt_list]
     euro_sg_tee_new_list = []; euro_sg_app_new_list = []; euro_sg_aro_new_list = []; euro_sg_putt_new_list = []; euro_drive_dist_new_list = []; euro_drive_acc_new_list = []
     new_euro_lists = [euro_sg_tee_new_list,euro_sg_app_new_list,euro_sg_aro_new_list,euro_sg_putt_new_list,euro_drive_dist_new_list,euro_drive_acc_new_list]
+    # Goes through each euro list: Reorders first name to first place, capitalizes first letter of each name, converts all letters to English letters
     for euro_list, new_euro_list in zip(euro_lists, new_euro_lists):
         for row in euro_list:
             #print('row[0:2]:\n', row[0:2])
@@ -1255,9 +1257,12 @@ def GetPlayerStatsPGATourWebsite(player_list, pga_player_stats_2018, euro_player
 ##    #df = pd.DataFrame(stats_list, columns=cols)
 
     df = pd.DataFrame(sg_tee_list, columns=['Player','TeeSG'])
+    df.set_index('Player', inplace=True)
+    df.sort_index(inplace=True)
     print('df TeeSG:\n', df)
     
-    return cols
+    
+    return df
 
     # Want all players in the tournament from the stats df
     tournament_sg_tee_list = [p_stat for p_stat in sg_tee_list if any(player in p_stat for player in player_list)]
