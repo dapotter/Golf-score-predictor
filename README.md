@@ -6,4 +6,4 @@ For comparison, a model developed by Drappi and Key which uses data of each shot
 
 Improvements to the GSP model should aim to 1) expand the feature set to include more course difficulty features and 2) include multiple PGA Tour tournaments from many years. The former is needed to account for the vast array of challenges presented to players by a variety of courses, and the latter is to train the model on more data from tournaments played on those courses. Unique course architectures might present players with predominantly water-lined fairways and tall rough one tournament, and a dry course with narrow fairways and elevated greens in another tournament. By expanding the sample size of holes played, the error of each score's predicted probability may be minimized.
 
-A unique accomplishment of this project is that a respectable log-loss value is achieved with only publicly available data from websites.
+A unique accomplishment of this project is that a respectable log-loss value is achieved with only publicly available, website-sourced data that is at hole-to-hole, not shot-to-shot, resolution.
