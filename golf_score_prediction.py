@@ -1,3 +1,4 @@
+import seaborn as sns
 import numpy as np
 import numpy.polynomial.polynomial as poly
 import pandas as pd
@@ -29,7 +30,7 @@ from unidecode import unidecode
 import string
 style.use('fast')
 
-''' Scikit Learn Imports '''
+''' Scikit-learn Imports '''
 from pandas.plotting import scatter_matrix
 from sklearn import model_selection
 from sklearn import metrics
@@ -41,6 +42,8 @@ from sklearn.metrics import precision_score
 from sklearn.metrics import roc_auc_score
 from sklearn.linear_model import LogisticRegression
 from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
@@ -746,7 +749,7 @@ def ImputeWeatherData(df, year_list, date_list):
     
         '''  Fitting  '''
         ''' Temperature: Polynomial fit '''
-        coefs_temperature = poly.polyfit(x, y_temperature, 10)
+        coefs_temperature = poly.polyfit(x, y_drive_acc, 10)
         ffit_temperature = poly.polyval(x_new, coefs_temperature)
         print('len(ffit_temperature):', len(ffit_temperature))
         master_ffit_temperature.extend(ffit_temperature)
@@ -1131,51 +1134,15 @@ def GetTeeTimes(year_list, date_list):
 
 
 
-
-
-''' Get player performance stats from an ESPN derived csv file
-    http://www.espn.com/golf/statistics/_/year/2018/type/expanded/sort/yardsPerDrive/count/161 '''
-def GetPlayerStatsESPN(player_list, player_stats_csv):
-    player_stats_list = []
-    with open (player_stats_csv, 'r') as tsv:
-        player_stats_object = csv.reader(tsv, dialect='excel-tab')
-        for i, line in enumerate(player_stats_object):
-            #print('line:\n', line) # line looks like: ['Greg Chalmers,45,282.8,58.9,56.9,1.747,50.4']
-            if i == 0:
-                cols = list(line[0].split(','))
-            else:
-                row = list(line[0].split(','))
-                player_stats_list.append(row)
-    tsv.close()
-
-    df = pd.DataFrame(player_stats_list, columns=cols)
-    print('df:\n', df)
-    tournament_player_list = df.Player.values.tolist()
-
-    ''' player_stats_list: contains players and their stats for 193 players in the PGA
-        tournament_player_stats_list: contains players and their stats for only those players in the tournament '''
-    tournament_player_stats_list = [p_stat for p_stat in player_stats_list if any(player in p_stat for player in player_list)]
-    print('tournament_player_stats_list:\n', tournament_player_stats_list)
-    print('len(player_list):\n', len(player_list))
-    print('len(tournament_player_stats_list):\n', len(tournament_player_stats_list))
-
-    df = pd.DataFrame(tournament_player_stats_list, columns=cols)
-    print('df:\n', df)
-    
-    # Si Woo Kim is Siwoo Kim on OWGR.com
-    # Sung Joon Park is Sunjoon Park on OWGR.com
-    # Sung-jae Im is Sungjae Im on OWGR.com
-    # Ted Potter Jr. is Ted Potter Jr on OWGR.com
-    # WC Liang is Liang Wen-Chong on OWGR.com
-
-    return df
-
-
-def GetPlayerStatsPGATourWebsite(player_list, pga_player_stats_2018, euro_player_stats_2018):
-    df_pga = pd.read_csv('2018_player_stats_pga_csv')
-    print('df_pga:\n', df_pga)
-    df_euro = pd.read_csv('2018_player_stats_euro_csv')
-    print('df_euro:\n', df_euro)
+''' Player stats copied from www.pgatour.com and http://www.europeantour.com/europeantour/stats/index.html,
+    copied to csv files, then imported. The European player names are last name first and capitalized. This
+    function formats the Euro names to match the PGA name formatting. The tournament players and their
+    stats are pulled from these lists, sorted, duplicates removed, and compiled into df_player_stats. '''
+def GetPlayerStats(player_list, pga_player_stats_2018, euro_player_stats_2018):
+    df_pga = pd.read_csv(pga_player_stats_2018)
+    #print('df_pga:\n', df_pga)
+    df_euro = pd.read_csv(euro_player_stats_2018)
+    #print('df_euro:\n', df_euro)
 
     euro_tee_names_list = df_euro['PlayerTeeSG'].values.tolist()
     euro_app_names_list = df_euro['PlayerAppSG'].values.tolist()
@@ -1185,30 +1152,164 @@ def GetPlayerStatsPGATourWebsite(player_list, pga_player_stats_2018, euro_player
     euro_drive_acc_names_list = df_euro['PlayerDriveAcc'].values.tolist()
 
     new_name_list = []
-    for name in euro_tee_names_list:
-        if type(name) == str:
-            #print('type(name):', type(name))
-            #print('name:', name)
-            #print('name:', name)
-            names = list(name.split(' '))
-            #print('names:', names)
-            first = names[1]; last = names[0]
-            #print('first:', first); print('last:', last)
-            first = unidecode(first); last = unidecode(last)
-            first = first.lower(); last = last.lower()
-            new_name = first + ' ' + last
-            new_name = new_name.title()
-            new_name_list.append(new_name)
-            #print(new_name_list)
-        else:
-            new_name_list.append(np.NaN)
+    euro_names_lists = [euro_tee_names_list, euro_app_names_list, euro_aro_names_list, euro_putt_names_list, euro_drive_dist_names_list, euro_drive_acc_names_list]
+    euro_new_tee_names_list = []; euro_new_app_names_list = []; euro_new_aro_names_list = []; euro_new_putt_names_list = []; euro_new_drive_dist_names_list = []; euro_new_drive_acc_names_list = []
+    master_euro_new_name_list = []
+    euro_new_names_lists = [euro_new_tee_names_list, euro_new_app_names_list, euro_new_aro_names_list, euro_new_putt_names_list, euro_new_drive_dist_names_list, euro_new_drive_acc_names_list]
+    for euro_list, euro_new_name_list in zip(euro_names_lists,euro_new_names_lists):
+        for name in euro_list:
+            if type(name) == str:
+                #print('type(name):', type(name))
+                #print('name:', name)
+                names = list(name.split(' '))
+                #print('names:', names)
+                first = names[1]; last = names[0]
+                #print('first:', first); print('last:', last)
+                first = unidecode(first); last = unidecode(last)
+                first = first.lower(); last = last.lower()
+                new_name = first + ' ' + last
+                new_name = new_name.title()
+                euro_new_name_list.append(new_name)
+                #print(new_name_list)
+            else:
+                euro_new_name_list.append(np.NaN)
+        master_euro_new_name_list.append(euro_new_name_list)
+        
+    player_cols_list = ['PlayerTeeSG','PlayerAppSG','PlayerAroSG','PlayerPuttSG','PlayerDriveDist','PlayerDriveAcc']
+    for i, player_col, euro_new_name_list in zip(range(0,12,2), player_cols_list, master_euro_new_name_list):
+        df_euro.drop(columns=[player_col], inplace=True)
+        df_euro.insert(loc=i, column=player_col, value=euro_new_name_list)
 
-    df_euro.drop(columns=['PlayerTeeSG'], inplace=True)
-    df_euro.insert(loc=0, column='PlayerTeeSG', value=new_name_list)
-    print('df_euro:', df_euro)
-   
-    return df_euro
+    # Adjusting Drive Accuracy to match PGA Tour percentages:
+    df_euro['DriveAcc'] = df_euro['DriveAcc']*100
     
+    ''' Moving all euro and pga player stats into one dataframe df: '''
+    df = df_pga.append(df_euro)
+    ''' Pulling all df values into lists: '''
+    tee_sg_list = df[['PlayerTeeSG','TeeSG']].values.tolist()
+    app_sg_list = df[['PlayerAppSG','AppSG']].values.tolist()
+    aro_sg_list = df[['PlayerAroSG','AroSG']].values.tolist()
+    putt_sg_list = df[['PlayerPuttSG','PuttSG']].values.tolist()
+    drive_dist_list = df[['PlayerDriveDist','DriveDist']].values.tolist()
+    drive_acc_list = df[['PlayerDriveAcc','DriveAcc']].values.tolist()
+
+    ''' Dealing with players in the tournament for whom stats don't exist:  '''
+    # First: get each stats list's players:
+    tee_sg_player_list = [p_stat[0] for p_stat in tee_sg_list]
+    app_sg_player_list = [p_stat[0] for p_stat in app_sg_list]
+    aro_sg_player_list = [p_stat[0] for p_stat in aro_sg_list]
+    putt_sg_player_list = [p_stat[0] for p_stat in putt_sg_list]
+    drive_dist_player_list = [p_stat[0] for p_stat in drive_dist_list]
+    drive_acc_player_list = [p_stat[0] for p_stat in drive_acc_list]
+    # Second: Search those lists for any players from player_list who are missing. If missing,
+    # put into a list. Note that 'xxx_xx_missing_player_list' contains missing players followed
+    # by a nan value (e.g. it contains missing stats):
+    tee_sg_missing_player_list = [[player,np.NaN] for player in player_list if player not in tee_sg_player_list]
+    app_sg_missing_player_list = [[player,np.NaN] for player in player_list if player not in app_sg_player_list]
+    aro_sg_missing_player_list = [[player,np.NaN] for player in player_list if player not in aro_sg_player_list]
+    putt_sg_missing_player_list = [[player,np.NaN] for player in player_list if player not in putt_sg_player_list]
+    drive_dist_missing_player_list = [[player,np.NaN] for player in player_list if player not in drive_dist_player_list]
+    drive_acc_missing_player_list = [[player,np.NaN] for player in player_list if player not in drive_acc_player_list]
+    # Third: Append this list of missing players to tee_sg_list, app_sg_list, etc:
+    tee_sg_list.extend(tee_sg_missing_player_list)
+    app_sg_list.extend(app_sg_missing_player_list)
+    aro_sg_list.extend(aro_sg_missing_player_list)
+    putt_sg_list.extend(putt_sg_missing_player_list)
+    drive_dist_list.extend(drive_dist_missing_player_list)
+    drive_acc_list.extend(drive_acc_missing_player_list)
+    # Fourth: With all tournament players present in each stats list, pull all tournament
+    # players and their stats from those lists, leaving out non-tournament players (of which
+    # there are many):
+    tournament_tee_sg_list = [p_stat for p_stat in tee_sg_list if any(player in p_stat for player in player_list)]
+    tournament_app_sg_list = [p_stat for p_stat in app_sg_list if any(player in p_stat for player in player_list)]
+    tournament_aro_sg_list = [p_stat for p_stat in aro_sg_list if any(player in p_stat for player in player_list)]
+    tournament_putt_sg_list = [p_stat for p_stat in putt_sg_list if any(player in p_stat for player in player_list)]
+    tournament_drive_dist_list = [p_stat for p_stat in drive_dist_list if any(player in p_stat for player in player_list)]
+    tournament_drive_acc_list = [p_stat for p_stat in drive_acc_list if any(player in p_stat for player in player_list)]
+    ''' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '''
+
+    print('len(tournament_tee_sg_list):\n', len(tournament_tee_sg_list))
+
+    # Compiling all lists into dataframes:
+    df_tournament_tee_sg = pd.DataFrame(tournament_tee_sg_list, columns=['PlayerTeeSG','TeeSG'])
+    df_tournament_app_sg = pd.DataFrame(tournament_app_sg_list, columns=['PlayerAppSG','AppSG'])
+    df_tournament_aro_sg = pd.DataFrame(tournament_aro_sg_list, columns=['PlayerAroSG','AroSG'])
+    df_tournament_putt_sg = pd.DataFrame(tournament_putt_sg_list, columns=['PlayerPuttSG','PuttSG'])
+    df_tournament_drive_dist = pd.DataFrame(tournament_drive_dist_list, columns=['PlayerDriveDist','DriveDist'])
+    df_tournament_drive_acc = pd.DataFrame(tournament_drive_acc_list, columns=['PlayerDriveAcc','DriveAcc'])
+
+    ''' For troubleshooting dataframe columns: returns missing values if any exist between two columns: '''
+    S_unique = pd.Series(list(set(df_tournament_tee_sg['PlayerTeeSG'].values) - set(df_tournament_drive_acc['PlayerDriveAcc'].values)))
+    #print('S_unique:\n', S_unique)
+    S_unique = pd.Series(list(set(df_tournament_drive_acc['PlayerDriveAcc'].values) - set(df_tournament_tee_sg['PlayerTeeSG'].values)))
+    #print('S_unique:\n', S_unique)
+
+    df_tournament_tee_sg.set_index('PlayerTeeSG', inplace=True); df_tournament_tee_sg.sort_index(inplace=True)
+    df_tournament_app_sg.set_index('PlayerAppSG', inplace=True); df_tournament_app_sg.sort_index(inplace=True)
+    df_tournament_aro_sg.set_index('PlayerAroSG', inplace=True); df_tournament_aro_sg.sort_index(inplace=True)
+    df_tournament_putt_sg.set_index('PlayerPuttSG', inplace=True); df_tournament_putt_sg.sort_index(inplace=True)
+    df_tournament_drive_dist.set_index('PlayerDriveDist', inplace=True); df_tournament_drive_dist.sort_index(inplace=True)
+    df_tournament_drive_acc.set_index('PlayerDriveAcc', inplace=True); df_tournament_drive_acc.sort_index(inplace=True)
+
+    ''' Removing duplicate player rows from drive acc and drive dist:
+        May be better to average duplicate values '''
+    df_tournament_tee_sg = df_tournament_tee_sg[~df_tournament_tee_sg.index.duplicated(keep='first')]
+    df_tournament_app_sg = df_tournament_app_sg[~df_tournament_app_sg.index.duplicated(keep='first')]
+    df_tournament_aro_sg = df_tournament_aro_sg[~df_tournament_aro_sg.index.duplicated(keep='first')]
+    df_tournament_putt_sg = df_tournament_putt_sg[~df_tournament_putt_sg.index.duplicated(keep='first')]
+    #print('len(df_tournament_drive_dist) before removing duplicates:\n', len(df_tournament_drive_dist))
+    df_tournament_drive_dist = df_tournament_drive_dist[~df_tournament_drive_dist.index.duplicated(keep='first')]
+    #print('len(df_tournament_drive_dist) after removing duplicates:\n', len(df_tournament_drive_dist))
+    df_tournament_drive_acc = df_tournament_drive_acc[~df_tournament_drive_acc.index.duplicated(keep='first')]
+
+    print('len(df_tournament_tee_sg):\n', len(df_tournament_tee_sg))
+    print('len(df_tournament_app_sg):\n', len(df_tournament_app_sg))
+    print('len(df_tournament_aro_sg):\n', len(df_tournament_aro_sg))
+    print('len(df_tournament_putt_sg):\n', len(df_tournament_putt_sg))
+    print('len(df_tournament_drive_dist):\n', len(df_tournament_drive_dist))
+    print('len(df_tournament_drive_acc):\n', len(df_tournament_drive_acc))
+
+    s_app_sg = df_tournament_app_sg['AppSG']
+    s_aro_sg = df_tournament_aro_sg['AroSG']
+    s_putt_sg = df_tournament_putt_sg['PuttSG']
+    s_drive_dist = df_tournament_drive_dist['DriveDist']
+    s_drive_acc = df_tournament_drive_acc['DriveAcc']
+    df_player_stats = pd.concat([df_tournament_tee_sg, s_app_sg, s_aro_sg, s_putt_sg, s_drive_dist, s_drive_acc], axis=1)
+
+    df_player_stats_no_nan = df_player_stats.dropna()
+    fraction_of_field_without_stats = 100-(len(df_player_stats_no_nan)/len(df_player_stats)*100)
+
+    # Replicate 17 times and append for a total of 18 instances per player:
+    # I would do this at the list level but the tournament stats need to be put
+    # into dataframes in order to remove duplicates. Alternatively, I could
+    # remove duplicate player-stat pairs at in tournament_tee_sg_list, etc but
+    # it would be more difficult because they are lists made up of [player, stat]
+    # sub-lists. Pandas has the duplicated() method that helps tremendously with
+    # removing duplicate rows.
+    df_player_stats = df_player_stats.append([df_player_stats]*17)
+    df_player_stats.sort_index(inplace=True)
+    print('df_player_stats:\n', df_player_stats.to_string())
+
+    ''' Fraction of players with missing stats is calculated prior to
+        replicating df_player_stats 17 times but is printed after everything else: '''
+    print('\nThe fraction of the tournament field for which no stats exist is {0:3.1f}%'.format(fraction_of_field_without_stats))
+
+    df_player_stats.to_pickle('us_open_player_stats.pickle')
+    
+    return df_player_stats
+
+
+
+
+
+def GetCourseStats(us_open_course_stats_2018):
+    df_course_stats = pd.read_csv(us_open_course_stats_2018)
+    df_course_stats.to_pickle('us_open_course_stats.pickle')
+    print('df_course_stats:\n', df_course_stats.to_string())
+
+    return df_course_stats
+
+
 
 
 
@@ -1442,7 +1543,7 @@ def GetScorecardsESPN():
     # Send to pickle:
     df_scorecards.to_pickle('us_open_scorecards.pickle')
 
-    
+
     return df_scorecards, df_player_name_ids, master_score_list, master_hole_list, master_yardage_list, master_par_list
     
 
@@ -1536,7 +1637,7 @@ def GetOWGR(player_list, owgr_csv_new, owgr_csv_old):
         Ryan Evans is 301 in the new list,
         but in the old list he shouldn't be included because he rose to 274 on the OWGR, meaning
         he's automatically on the downloaded list. Adding him to the old OWGR list would duplicate
-        hist data. '''
+        his data. '''
     # Manually replacing missing_player_owgr_list:
     missing_player_owgr_new_list = [['Braden Thornberry',797],['Calum Hill',1415],['Cameron Wilson',1416],['Chris Naegel',1098],
                                 ['Christopher Babcock',9999],['Chun An Yu',8888],['Cole Miller',1994],['Danny Willett',401],
@@ -1654,8 +1755,9 @@ def GetOWGR(player_list, owgr_csv_new, owgr_csv_old):
 
 
 '''################################################################################################'''
-# This function calculates the round progression of each player's score to the minute
-def GetRoundProgress(df_scorecards, df_tee_times, df_owgr, year_list, date_list):
+# This function calculates the round progression of each player's score to the minute based on
+# assumptions about how long it takes to play a hole given the strokes made on a hole.
+def GetRoundProgress(df_scorecards, df_tee_times, df_player_stats, df_course_stats, df_owgr, year_list, date_list):
     print('year_list:\n', year_list)
     print('date_list:\n', date_list)
     print('df_tee_times:\n', df_tee_times)
@@ -1759,16 +1861,44 @@ def GetRoundProgress(df_scorecards, df_tee_times, df_owgr, year_list, date_list)
     # Making lists based on tee-off hole:
     r1=range(1,10); r10=range(10,19) # range 1-8 and range 10-18
     hole_list_1 = [*r1,*r10]; hole_list_10 = [*r10,*r1]
-    ########  PAR FOR 2018 US OPEN ONLY, CHANGE FOR OTHER TOURNAMENTS:
-    par_list_1 = [4,3,4,4,5,4,3,4,4,4,3,4,4,4,4,5,3,4]
-    par_list_10 = [4,3,4,4,4,4,5,3,4,4,3,4,4,5,4,3,4,4]
+
+    ''' OWGR Features: '''
+    owgr_new_list = df_owgr['New OWGR'].tolist()
+    owgr_diff_list = df_owgr['OWGR Diff'].tolist()
+
+    ''' Player Features: These are hole and round independent '''
+    tee_sg_list = df_player_stats['TeeSG'].tolist()
+    app_sg_list = df_player_stats['AppSG'].tolist()
+    aro_sg_list = df_player_stats['AroSG'].tolist()
+    putt_sg_list = df_player_stats['PuttSG'].tolist()
+    drive_dist_list = df_player_stats['DriveDist'].tolist()
+    drive_acc_list = df_player_stats['DriveAcc'].tolist()
+    ''' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '''
+
+    ''' Course Features: These are hole and round dependent '''
+    par_list_1 = df_course_stats['Par'].values.tolist();                        par_list_10 = pd.concat([df_course_stats.iloc[9:]['Par'],df_course_stats.iloc[0:9]['Par']],axis=0).values.tolist()
+    yardage_list_1 = df_course_stats['Yards'].values.tolist();                  yardage_list_10 = pd.concat([df_course_stats.iloc[9:]['Yards'],df_course_stats.iloc[0:9]['Yards']],axis=0).values.tolist()
+    hole_sa_list_1 = df_course_stats['ScoringAvg'].values.tolist();             hole_sa_list_10 = pd.concat([df_course_stats.iloc[9:]['ScoringAvg'],df_course_stats.iloc[0:9]['ScoringAvg']],axis=0).values.tolist()
+    hole_shape_list_1 = df_course_stats['HoleShape'].values.tolist();           hole_shape_list_10 = pd.concat([df_course_stats.iloc[9:]['HoleShape'],df_course_stats.iloc[0:9]['HoleShape']],axis=0).values.tolist()
+    green_size_list_1 = df_course_stats['GreenSize'].values.tolist();           green_size_list_10 = pd.concat([df_course_stats.iloc[9:]['GreenSize'],df_course_stats.iloc[0:9]['GreenSize']],axis=0).values.tolist()
+    green_sand_area_list_1 = df_course_stats['GreenSandArea'].values.tolist();  green_sand_area_list_10 = pd.concat([df_course_stats.iloc[9:]['GreenSandArea'],df_course_stats.iloc[0:9]['GreenSandArea']],axis=0).values.tolist()
+    fair_sand_area_list_1 = df_course_stats['FairSandArea'].values.tolist();    fair_sand_area_list_10 = pd.concat([df_course_stats.iloc[9:]['FairSandArea'],df_course_stats.iloc[0:9]['FairSandArea']],axis=0).values.tolist()
+    fair_250_list_1 = df_course_stats['FairW250'].values.tolist();              fair_250_list_10 = pd.concat([df_course_stats.iloc[9:]['FairW250'],df_course_stats.iloc[0:9]['FairW250']],axis=0).values.tolist()
+    fair_275_list_1 = df_course_stats['FairW275'].values.tolist();              fair_275_list_10 = pd.concat([df_course_stats.iloc[9:]['FairW275'],df_course_stats.iloc[0:9]['FairW275']],axis=0).values.tolist()
+    fair_300_list_1 = df_course_stats['FairW300'].values.tolist();              fair_300_list_10 = pd.concat([df_course_stats.iloc[9:]['FairW300'],df_course_stats.iloc[0:9]['FairW300']],axis=0).values.tolist()
+    fair_325_list_1 = df_course_stats['FairW325'].values.tolist();              fair_325_list_10 = pd.concat([df_course_stats.iloc[9:]['FairW325'],df_course_stats.iloc[0:9]['FairW325']],axis=0).values.tolist()
+    fair_350_list_1 = df_course_stats['FairW350'].values.tolist();              fair_350_list_10 = pd.concat([df_course_stats.iloc[9:]['FairW350'],df_course_stats.iloc[0:9]['FairW350']],axis=0).values.tolist()
+    ''' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '''
+
+    ''' Pin Placements: '''
     pin_list_round_1_hole_1 =   ['BR','CR','BL','CL','CL','CC','FC','FL','CC', 'BC','CL','FR','CR','BC','FC','CC','BR','BL']
     pin_list_round_1_hole_10 =  ['BC','CL','FR','CR','BC','FC','CC','BR','BL', 'BR','CR','BL','CL','CL','CC','FC','FL','CC']
     pin_list_round_2_hole_1 =   ['BL','BL','CL','CR','FR','CC','CL','BR','CC', 'FC','CC','BL','BC','CL','BC','FR','CL','CC']
     pin_list_round_2_hole_10 =  ['FC','CC','BL','BC','CL','BC','FR','CL','CC', 'BL','BL','CL','CR','FR','CC','CL','BR','CC']
     pin_list_round_3 =          ['FL','FC','FR','BL','CR','CL','FR','CL','CL', 'CL','CR','FC','CR','BR','CR','BC','FC','BL']
     pin_list_round_4 =          ['CC','BC','CC','FR','BC','BL','FL','CC','CL', 'CR','BR','CL','CC','FC','CL','CC','BL','CC']
-    
+    ''' ~~~~~~~~~~~~~~~ '''
+
     time_dur_list = []
     nan_list = [np.NaN]*18
     #print('tee_off_list:\n', tee_off_list)
@@ -1785,10 +1915,34 @@ def GetRoundProgress(df_scorecards, df_tee_times, df_owgr, year_list, date_list)
     print('tee_time_list[0:20]:\n', tee_time_list[0:20])
     print('type(tee_time_list[0]): ', type(tee_time_list[0]))
 
+    round_1_round_list = []; round_2_round_list = []; round_3_round_list = []; round_4_round_list = []
     round_1_scores_list = []; round_2_scores_list = []; round_3_scores_list = []; round_4_scores_list = []
     round_1_hole_list = []; round_2_hole_list = []; round_3_hole_list = []; round_4_hole_list = []
     round_1_pin_list = []; round_2_pin_list = []; round_3_pin_list = []; round_4_pin_list = []
     round_1_par_list = []; round_2_par_list = []; round_3_par_list = []; round_4_par_list = []
+    round_1_par_list = []; round_2_par_list = []; round_3_par_list = []; round_4_par_list = []
+
+##    ''' Player Stats lists: '''
+##    round_1_tee_sg_list = []; round_2_tee_sg_list = []; round_3_tee_sg_list = []; round_4_tee_sg_list = []
+##    round_1_app_sg_list = []; round_2_app_sg_list = []; round_3_app_sg_list = []; round_4_app_sg_list = []
+##    round_1_aro_sg_list = []; round_2_aro_sg_list = []; round_3_aro_sg_list = []; round_4_aro_sg_list = []
+##    round_1_putt_sg_list = []; round_2_putt_sg_list = []; round_3_putt_sg_list = []; round_4_putt_sg_list = []
+##    round_1_drive_dist_list = []; round_2_drive_dist_list = []; round_3_drive_dist_list = []; round_4_drive_dist_list = []
+##    round_1_drive_acc_list = []; round_2_drive_acc_list = []; round_3_drive_acc_list = []; round_4_drive_acc_list = []
+    
+    ''' Course Stats lists: '''
+    round_1_yardage_list = []; round_2_yardage_list = []; round_3_yardage_list = []; round_4_yardage_list = []
+    round_1_hole_sa_list = []; round_2_hole_sa_list = []; round_3_hole_sa_list = []; round_4_hole_sa_list = []
+    round_1_hole_shape_list = []; round_2_hole_shape_list = []; round_3_hole_shape_list = []; round_4_hole_shape_list = []
+    round_1_green_size_list = []; round_2_green_size_list = []; round_3_green_size_list = []; round_4_green_size_list = []
+    round_1_green_sand_area_list = []; round_2_green_sand_area_list = []; round_3_green_sand_area_list = []; round_4_green_sand_area_list = []
+    round_1_fair_sand_area_list = []; round_2_fair_sand_area_list = []; round_3_fair_sand_area_list = []; round_4_fair_sand_area_list = []
+    round_1_fair_250_list = []; round_2_fair_250_list = []; round_3_fair_250_list = []; round_4_fair_250_list = []
+    round_1_fair_275_list = []; round_2_fair_275_list = []; round_3_fair_275_list = []; round_4_fair_275_list = []
+    round_1_fair_300_list = []; round_2_fair_300_list = []; round_3_fair_300_list = []; round_4_fair_300_list = []
+    round_1_fair_325_list = []; round_2_fair_325_list = []; round_3_fair_325_list = []; round_4_fair_325_list = []
+    round_1_fair_350_list = []; round_2_fair_350_list = []; round_3_fair_350_list = []; round_4_fair_350_list = []
+    
     round_1_to_par_list = []; round_2_to_par_list = []; round_3_to_par_list = []; round_4_to_par_list = []
     round_1_to_par_cumsum_list = []; round_2_to_par_cumsum_list = []; round_3_to_par_cumsum_list = []; round_4_to_par_cumsum_list = []
     round_1_time_dur_list = []; round_2_time_dur_list = []; round_3_time_dur_list = []; round_4_time_dur_list = [] 
@@ -1810,33 +1964,58 @@ def GetRoundProgress(df_scorecards, df_tee_times, df_owgr, year_list, date_list)
         if rnd == 'Round 1':
             #print('Round 1')
             # If the Round 1 column of Player has any NaNs, set lists to all NaNs
-            # because we I can't search the lookup table with to_par values that are NaNs
+            # because I can't search the lookup table with to_par values that are NaNs
             if df_scorecards.loc[player][rnd].isnull().values.any() == True:
                 # Recall that some players have no scores for all four rounds due to a score
                 # collection problem in GetScorecardsESPN():
                 print('###################  Round 1 NaN scores present')
+                round_1_round_list.extend(nan_list)
                 round_1_scores_list.extend(nan_list)
                 round_1_hole_list.extend(nan_list)
                 round_1_pin_list.extend(nan_list)
                 round_1_par_list.extend(nan_list)
+                round_1_par_list.extend(nan_list)
+                round_1_yardage_list.extend(nan_list)
+                round_1_hole_sa_list.extend(nan_list)
+                round_1_hole_shape_list.extend(nan_list)
+                round_1_green_size_list.extend(nan_list)
+                round_1_green_sand_area_list.extend(nan_list)
+                round_1_fair_sand_area_list.extend(nan_list)
+                round_1_fair_250_list.extend(nan_list)
+                round_1_fair_275_list.extend(nan_list)
+                round_1_fair_300_list.extend(nan_list)
+                round_1_fair_325_list.extend(nan_list)
+                round_1_fair_350_list.extend(nan_list)
                 round_1_to_par_list.extend(nan_list)
                 round_1_to_par_cumsum_list.extend(nan_list)
                 round_1_time_dur_list.extend(nan_list)
                 round_1_time_cumsum_list.extend(nan_list)
             else:
                 scores_list = df_scorecards.loc[player][rnd].values.tolist()
+                round_1_round_list.extend([1]*18)
                 #print('round 1 scores_list for', player,':\n', scores_list)
                 if hole == '1': # These should be converted to ints in GetTeeTimes()
                     round_1_scores_list.extend(scores_list) # Keep scores list as it is
-                    hole_list = hole_list_1 # Writing to generic hole list makes referencing holes easier
-                    round_1_hole_list.extend(hole_list)
-                    pin_list = pin_list_round_1_hole_1
-                    round_1_pin_list.extend(pin_list)
-                    par_list = par_list_1 # Writing to generic par list makes referencing par easier in for loop below
+                    round_1_hole_list.extend(hole_list_1)
+                    round_1_pin_list.extend(pin_list_round_1_hole_1)
+                    ''' Course Stats: '''
+                    par_list = par_list_1 # Need to retain par_list because it's used below
                     round_1_par_list.extend(par_list)
-                    to_par_list = list(map(operator.sub, scores_list, par_list)) # Subtract lists: -1 in list means birdie
+                    round_1_yardage_list.extend(yardage_list_1)
+                    round_1_hole_sa_list.extend(hole_sa_list_1)
+                    round_1_hole_shape_list.extend(hole_shape_list_1)
+                    round_1_green_size_list.extend(green_size_list_1)
+                    round_1_green_sand_area_list.extend(green_sand_area_list_1)
+                    round_1_fair_sand_area_list.extend(fair_sand_area_list_1)
+                    round_1_fair_250_list.extend(fair_250_list_1)
+                    round_1_fair_275_list.extend(fair_275_list_1)
+                    round_1_fair_300_list.extend(fair_300_list_1)
+                    round_1_fair_325_list.extend(fair_325_list_1)
+                    round_1_fair_350_list.extend(fair_350_list_1)
+                    ''' ~~~~~~~~~~~~~~~~~~ '''
+                    to_par_list = list(map(operator.sub, scores_list, par_list)) # Subtract lists: -1 in list means birdie, 0:par, etc.
                     round_1_to_par_list.extend(to_par_list)
-                    to_par_cumsum_list = list(accumulate(to_par_list))
+                    to_par_cumsum_list = [0] + list(accumulate(to_par_list[:-1]))
                     round_1_to_par_cumsum_list.extend(to_par_cumsum_list)
                     time_dur_list = [] # Need to initialize here
                     time_cumsum_list = []
@@ -1857,19 +2036,29 @@ def GetRoundProgress(df_scorecards, df_tee_times, df_owgr, year_list, date_list)
                         print('#########  time_cumsum_list:\n', time_cumsum_list)
                     round_1_time_dur_list.extend(time_dur_list)
                     round_1_time_cumsum_list.extend(time_cumsum_list)
-    
                 elif hole == '10':
                     scores_list = scores_list[9:18]+scores_list[0:9]
                     round_1_scores_list.extend(scores_list)
-                    hole_list = hole_list_10
-                    round_1_hole_list.extend(hole_list)
-                    pin_list = pin_list_round_1_hole_10
-                    round_1_pin_list.extend(pin_list)
+                    round_1_hole_list.extend(hole_list_10)
+                    round_1_pin_list.extend(pin_list_round_1_hole_10)
+                    ''' Course Stats lists: '''
                     par_list = par_list_10
                     round_1_par_list.extend(par_list)
+                    round_1_yardage_list.extend(yardage_list_10)
+                    round_1_hole_sa_list.extend(hole_sa_list_10)
+                    round_1_hole_shape_list.extend(hole_shape_list_10)
+                    round_1_green_size_list.extend(green_size_list_10)
+                    round_1_green_sand_area_list.extend(green_sand_area_list_10)
+                    round_1_fair_sand_area_list.extend(fair_sand_area_list_10)
+                    round_1_fair_250_list.extend(fair_250_list_10)
+                    round_1_fair_275_list.extend(fair_275_list_10)
+                    round_1_fair_300_list.extend(fair_300_list_10)
+                    round_1_fair_325_list.extend(fair_325_list_10)
+                    round_1_fair_350_list.extend(fair_350_list_10)
+                    ''' ~~~~~~~~~~~~~~~~~~ '''
                     to_par_list = list(map(operator.sub, scores_list, par_list))
                     round_1_to_par_list.extend(to_par_list)
-                    to_par_cumsum_list = list(accumulate(to_par_list))
+                    to_par_cumsum_list = [0] + list(accumulate(to_par_list[:-1]))
                     round_1_to_par_cumsum_list.extend(to_par_cumsum_list)
                     time_dur_list = []
                     time_cumsum_list = []
@@ -1888,28 +2077,54 @@ def GetRoundProgress(df_scorecards, df_tee_times, df_owgr, year_list, date_list)
             #print('Round 2')
             if df_scorecards.loc[player][rnd].isnull().values.any() == True:
                 print('###################  Round 2 NaN scores present')
+                round_2_round_list.extend(nan_list)
                 round_2_scores_list.extend(nan_list)
                 round_2_hole_list.extend(nan_list)
                 round_2_pin_list.extend(nan_list)
                 round_2_par_list.extend(nan_list)
+                round_2_yardage_list.extend(nan_list)
+                round_2_hole_sa_list.extend(nan_list)
+                round_2_hole_shape_list.extend(nan_list)
+                round_2_green_size_list.extend(nan_list)
+                round_2_green_sand_area_list.extend(nan_list)
+                round_2_fair_sand_area_list.extend(nan_list)
+                round_2_fair_250_list.extend(nan_list)
+                round_2_fair_275_list.extend(nan_list)
+                round_2_fair_300_list.extend(nan_list)
+                round_2_fair_325_list.extend(nan_list)
+                round_2_fair_350_list.extend(nan_list)
                 round_2_to_par_list.extend(nan_list)
                 round_2_to_par_cumsum_list.extend(nan_list)
                 round_2_time_dur_list.extend(nan_list)
                 round_2_time_cumsum_list.extend(nan_list)
             else:
                 scores_list = df_scorecards.loc[player][rnd].values.tolist()
+                round_2_round_list.extend([2]*18)
                 if hole == '1':
                     print('hole = 1')
                     round_2_scores_list.extend(scores_list)
-                    hole_list = hole_list_1
-                    round_2_hole_list.extend(hole_list)
-                    pin_list = pin_list_round_2_hole_1
-                    round_2_pin_list.extend(pin_list)
+                    round_2_hole_list.extend(hole_list_1)
+                    round_2_pin_list.extend(pin_list_round_2_hole_1)
+                    ''' Course Stats lists: '''
+                    par_list = par_list_1
+                    round_2_par_list.extend(par_list)
+                    round_2_yardage_list.extend(yardage_list_1)
+                    round_2_hole_sa_list.extend(hole_sa_list_1)
+                    round_2_hole_shape_list.extend(hole_shape_list_1)
+                    round_2_green_size_list.extend(green_size_list_1)
+                    round_2_green_sand_area_list.extend(green_sand_area_list_1)
+                    round_2_fair_sand_area_list.extend(fair_sand_area_list_1)
+                    round_2_fair_250_list.extend(fair_250_list_1)
+                    round_2_fair_275_list.extend(fair_275_list_1)
+                    round_2_fair_300_list.extend(fair_300_list_1)
+                    round_2_fair_325_list.extend(fair_325_list_1)
+                    round_2_fair_350_list.extend(fair_350_list_1)
+                    ''' ~~~~~~~~~~~~~~~~~~ '''
                     par_list = par_list_1
                     round_2_par_list.extend(par_list)
                     to_par_list = list(map(operator.sub, scores_list, par_list))
                     round_2_to_par_list.extend(to_par_list)
-                    to_par_cumsum_list = list(accumulate(to_par_list))
+                    to_par_cumsum_list = [0] + list(accumulate(to_par_list[:-1]))
                     round_2_to_par_cumsum_list.extend(to_par_cumsum_list)
                     time_dur_list = []
                     time_cumsum_list = [] # Initialize with tee_time
@@ -1927,15 +2142,26 @@ def GetRoundProgress(df_scorecards, df_tee_times, df_owgr, year_list, date_list)
                     print('hole = 10')
                     scores_list = scores_list[9:18]+scores_list[0:9]
                     round_2_scores_list.extend(scores_list)
-                    hole_list = hole_list_10
-                    round_2_hole_list.extend(hole_list)
-                    pin_list = pin_list_round_2_hole_10
-                    round_2_pin_list.extend(pin_list)
+                    round_2_hole_list.extend(hole_list_10)
+                    round_2_pin_list.extend(pin_list_round_2_hole_10)
+                    ''' Course Stats lists: '''
                     par_list = par_list_10
                     round_2_par_list.extend(par_list)
+                    round_2_yardage_list.extend(yardage_list_10)
+                    round_2_hole_sa_list.extend(hole_sa_list_10)
+                    round_2_hole_shape_list.extend(hole_shape_list_10)
+                    round_2_green_size_list.extend(green_size_list_10)
+                    round_2_green_sand_area_list.extend(green_sand_area_list_10)
+                    round_2_fair_sand_area_list.extend(fair_sand_area_list_10)
+                    round_2_fair_250_list.extend(fair_250_list_10)
+                    round_2_fair_275_list.extend(fair_275_list_10)
+                    round_2_fair_300_list.extend(fair_300_list_10)
+                    round_2_fair_325_list.extend(fair_325_list_10)
+                    round_2_fair_350_list.extend(fair_350_list_10)
+                    ''' ~~~~~~~~~~~~~~~~~~ '''
                     to_par_list = list(map(operator.sub, scores_list, par_list))
                     round_2_to_par_list.extend(to_par_list)
-                    to_par_cumsum_list = list(accumulate(to_par_list))
+                    to_par_cumsum_list = [0] + list(accumulate(to_par_list[:-1]))
                     round_2_to_par_cumsum_list.extend(to_par_cumsum_list)
                     time_dur_list = []
                     time_cumsum_list = [] # Initialize with tee_time
@@ -1954,27 +2180,51 @@ def GetRoundProgress(df_scorecards, df_tee_times, df_owgr, year_list, date_list)
             #print('Round 3')
             if df_scorecards.loc[player][rnd].isnull().values.any() == True:
                 print('###################  Round 3 NaN scores present')
+                round_3_round_list.extend(nan_list)
                 round_3_scores_list.extend(nan_list)
                 round_3_hole_list.extend(nan_list)
                 round_3_pin_list.extend(nan_list)
                 round_3_par_list.extend(nan_list)
+                round_3_yardage_list.extend(nan_list)
+                round_3_hole_sa_list.extend(nan_list)
+                round_3_hole_shape_list.extend(nan_list)
+                round_3_green_size_list.extend(nan_list)
+                round_3_green_sand_area_list.extend(nan_list)
+                round_3_fair_sand_area_list.extend(nan_list)
+                round_3_fair_250_list.extend(nan_list)
+                round_3_fair_275_list.extend(nan_list)
+                round_3_fair_300_list.extend(nan_list)
+                round_3_fair_325_list.extend(nan_list)
+                round_3_fair_350_list.extend(nan_list)
                 round_3_to_par_list.extend(nan_list)
                 round_3_to_par_cumsum_list.extend(nan_list)
                 round_3_time_dur_list.extend(nan_list)
                 round_3_time_cumsum_list.extend(nan_list)
             else:
                 scores_list = df_scorecards.loc[player][rnd].values.tolist()
+                round_3_round_list.extend([3]*18)
                 if hole == '1':
                     round_3_scores_list.extend(scores_list)
-                    hole_list = hole_list_1
-                    round_3_hole_list.extend(hole_list)
-                    pin_list = pin_list_round_3
-                    round_3_pin_list.extend(pin_list)
+                    round_3_hole_list.extend(hole_list_1)
+                    round_3_pin_list.extend(pin_list_round_3)
+                    ''' Course Stats lists: '''
                     par_list = par_list_1
                     round_3_par_list.extend(par_list)
+                    round_3_yardage_list.extend(yardage_list_1)
+                    round_3_hole_sa_list.extend(hole_sa_list_1)
+                    round_3_hole_shape_list.extend(hole_shape_list_1)
+                    round_3_green_size_list.extend(green_size_list_1)
+                    round_3_green_sand_area_list.extend(green_sand_area_list_1)
+                    round_3_fair_sand_area_list.extend(fair_sand_area_list_1)
+                    round_3_fair_250_list.extend(fair_250_list_1)
+                    round_3_fair_275_list.extend(fair_275_list_1)
+                    round_3_fair_300_list.extend(fair_300_list_1)
+                    round_3_fair_325_list.extend(fair_325_list_1)
+                    round_3_fair_350_list.extend(fair_350_list_1)
+                    ''' ~~~~~~~~~~~~~~~~~~ '''
                     to_par_list = list(map(operator.sub, scores_list, par_list))
                     round_3_to_par_list.extend(to_par_list)
-                    to_par_cumsum_list = list(accumulate(to_par_list))
+                    to_par_cumsum_list = [0] + list(accumulate(to_par_list[:-1]))
                     round_3_to_par_cumsum_list.extend(to_par_cumsum_list)
                     time_dur_list = []
                     time_cumsum_list = [] # Initialize with tee_time
@@ -1993,27 +2243,53 @@ def GetRoundProgress(df_scorecards, df_tee_times, df_owgr, year_list, date_list)
             #print('Round 4')
             if df_scorecards.loc[player][rnd].isnull().values.any() == True:
                 print('###################  Round 4 NaN scores present')
+                round_4_round_list.extend(nan_list)
                 round_4_scores_list.extend(nan_list)
                 round_4_hole_list.extend(nan_list)
                 round_4_pin_list.extend(nan_list)
                 round_4_par_list.extend(nan_list)
+                round_4_yardage_list.extend(nan_list)
+                round_4_hole_sa_list.extend(nan_list)
+                round_4_hole_shape_list.extend(nan_list)
+                round_4_green_size_list.extend(nan_list)
+                round_4_green_sand_area_list.extend(nan_list)
+                round_4_fair_sand_area_list.extend(nan_list)
+                round_4_fair_250_list.extend(nan_list)
+                round_4_fair_275_list.extend(nan_list)
+                round_4_fair_300_list.extend(nan_list)
+                round_4_fair_325_list.extend(nan_list)
+                round_4_fair_350_list.extend(nan_list)
                 round_4_to_par_list.extend(nan_list)
                 round_4_to_par_cumsum_list.extend(nan_list)
                 round_4_time_dur_list.extend(nan_list)
                 round_4_time_cumsum_list.extend(nan_list)
             else:
                 scores_list = df_scorecards.loc[player][rnd].values.tolist()
+                round_4_round_list.extend([4]*18)
                 if hole == '1':
                     round_4_scores_list.extend(scores_list)
                     hole_list = hole_list_1
                     round_4_hole_list.extend(hole_list)
                     pin_list = pin_list_round_4
                     round_4_pin_list.extend(pin_list)
+                    ''' Course Stats lists: '''
                     par_list = par_list_1
                     round_4_par_list.extend(par_list)
+                    round_4_yardage_list.extend(yardage_list_1)
+                    round_4_hole_sa_list.extend(hole_sa_list_1)
+                    round_4_hole_shape_list.extend(hole_shape_list_1)
+                    round_4_green_size_list.extend(green_size_list_1)
+                    round_4_green_sand_area_list.extend(green_sand_area_list_1)
+                    round_4_fair_sand_area_list.extend(fair_sand_area_list_1)
+                    round_4_fair_250_list.extend(fair_250_list_1)
+                    round_4_fair_275_list.extend(fair_275_list_1)
+                    round_4_fair_300_list.extend(fair_300_list_1)
+                    round_4_fair_325_list.extend(fair_325_list_1)
+                    round_4_fair_350_list.extend(fair_350_list_1)
+                    ''' ~~~~~~~~~~~~~~~~~~ '''
                     to_par_list = list(map(operator.sub, scores_list, par_list))
                     round_4_to_par_list.extend(to_par_list)
-                    to_par_cumsum_list = list(accumulate(to_par_list))
+                    to_par_cumsum_list = [0] + list(accumulate(to_par_list[:-1]))
                     round_4_to_par_cumsum_list.extend(to_par_cumsum_list)
                     time_dur_list = []
                     time_cumsum_list = [] # Initialize with tee_time
@@ -2030,60 +2306,148 @@ def GetRoundProgress(df_scorecards, df_tee_times, df_owgr, year_list, date_list)
 
         i += 1
 
-    player_list_scorecards = df_scorecards.index.get_level_values(0).tolist()    
+    player_list_scorecards = df_scorecards.index.get_level_values(0).tolist()
 
     print('len(round_4_scores_list):', len(round_4_scores_list))
     print('len(round_4_hole_list):', len(round_4_hole_list))
     print('len(round_4_pin_list):', len(round_4_pin_list))
+    print('len(tee_sg_list):', len(tee_sg_list))
     print('len(round_4_par_list):', len(round_4_par_list))
+    print('len(round_4_yardage_list):', len(round_4_yardage_list))
     print('len(round_4_to_par_list):', len(round_4_to_par_list))
     print('len(round_4_to_par_cumsum_list):', len(round_4_to_par_cumsum_list))
+
+    print('len(round_1_time_dur_list):', len(round_1_time_dur_list))
+    print('len(round_2_time_dur_list):', len(round_2_time_dur_list))
+    print('len(round_3_time_dur_list):', len(round_3_time_dur_list))
     print('len(round_4_time_dur_list):', len(round_4_time_dur_list))
+
     print('len(round_4_cumsum_list):', len(round_4_time_cumsum_list))
     
     # Making a new scorecards df:
     df = pd.DataFrame(player_list_scorecards, columns=['Player'])
-
-    owgr_new_list = df_owgr['New OWGR'].tolist()
-    df.insert(loc=1, column='New OWGR', value=owgr_new_list)
-
-    owgr_diff_list = df_owgr['OWGR Diff'].tolist()
-    df.insert(loc=2, column='OWGR Diff', value=owgr_diff_list)
     
-    df.insert(loc=3, column='R1 Time', value=round_1_time_cumsum_list)
-    df.insert(loc=4, column='R2 Time', value=round_2_time_cumsum_list)
-    df.insert(loc=5, column='R3 Time', value=round_3_time_cumsum_list)
-    df.insert(loc=6, column='R4 Time', value=round_4_time_cumsum_list)
+    df.insert(loc=1, column='R1 Time', value=round_1_time_cumsum_list)
+    df.insert(loc=2, column='R2 Time', value=round_2_time_cumsum_list)
+    df.insert(loc=3, column='R3 Time', value=round_3_time_cumsum_list)
+    df.insert(loc=4, column='R4 Time', value=round_4_time_cumsum_list)
 
-    df.insert(loc=7, column='R1 Hole', value=round_1_hole_list)
-    df.insert(loc=8, column='R2 Hole', value=round_2_hole_list)
-    df.insert(loc=9, column='R3 Hole', value=round_3_hole_list)
-    df.insert(loc=10, column='R4 Hole', value=round_4_hole_list)
+    df.insert(loc=5, column='R1 Hole', value=round_1_hole_list)
+    df.insert(loc=6, column='R2 Hole', value=round_2_hole_list)
+    df.insert(loc=7, column='R3 Hole', value=round_3_hole_list)
+    df.insert(loc=8, column='R4 Hole', value=round_4_hole_list)
 
-    df.insert(loc=11, column='R1 To Par', value=round_1_to_par_list)
-    df.insert(loc=12, column='R2 To Par', value=round_2_to_par_list)
-    df.insert(loc=13, column='R3 To Par', value=round_3_to_par_list)
-    df.insert(loc=14, column='R4 To Par', value=round_4_to_par_list)
+    df.insert(loc=9, column='R1 To Par', value=round_1_to_par_list)
+    df.insert(loc=10, column='R2 To Par', value=round_2_to_par_list)
+    df.insert(loc=11, column='R3 To Par', value=round_3_to_par_list)
+    df.insert(loc=12, column='R4 To Par', value=round_4_to_par_list)
     
-    df.insert(loc=15, column='R1 To Par CS', value=round_1_to_par_cumsum_list)
-    df.insert(loc=16, column='R2 To Par CS', value=round_2_to_par_cumsum_list)
-    df.insert(loc=17, column='R3 To Par CS', value=round_3_to_par_cumsum_list)
-    df.insert(loc=18, column='R4 To Par CS', value=round_4_to_par_cumsum_list)
+    df.insert(loc=13, column='R1 To Par CS', value=round_1_to_par_cumsum_list)
+    df.insert(loc=14, column='R2 To Par CS', value=round_2_to_par_cumsum_list)
+    df.insert(loc=15, column='R3 To Par CS', value=round_3_to_par_cumsum_list)
+    df.insert(loc=16, column='R4 To Par CS', value=round_4_to_par_cumsum_list)
 
-    df.insert(loc=19, column='R1 Time Dur', value=round_1_time_dur_list)
-    df.insert(loc=20, column='R2 Time Dur', value=round_2_time_dur_list)
-    df.insert(loc=21, column='R3 Time Dur', value=round_3_time_dur_list)
-    df.insert(loc=22, column='R4 Time Dur', value=round_4_time_dur_list)
+    df.insert(loc=17, column='R1 Time Dur', value=round_1_time_dur_list)
+    df.insert(loc=18, column='R2 Time Dur', value=round_2_time_dur_list)
+    df.insert(loc=19, column='R3 Time Dur', value=round_3_time_dur_list)
+    df.insert(loc=20, column='R4 Time Dur', value=round_4_time_dur_list)
 
-    df.insert(loc=23, column='R1 Pin', value=round_1_pin_list)
-    df.insert(loc=24, column='R2 Pin', value=round_2_pin_list)
-    df.insert(loc=25, column='R3 Pin', value=round_3_pin_list)
-    df.insert(loc=26, column='R4 Pin', value=round_4_pin_list)
-    
+    df.insert(loc=21, column='R1 Pin', value=round_1_pin_list)
+    df.insert(loc=22, column='R2 Pin', value=round_2_pin_list)
+    df.insert(loc=23, column='R3 Pin', value=round_3_pin_list)
+    df.insert(loc=24, column='R4 Pin', value=round_4_pin_list)
+
     df['R1 Time Start'] = df['R1 Time'] - df['R1 Time Dur']
     df['R2 Time Start'] = df['R2 Time'] - df['R2 Time Dur']
     df['R3 Time Start'] = df['R3 Time'] - df['R3 Time Dur']
     df['R4 Time Start'] = df['R4 Time'] - df['R4 Time Dur']
+
+    x = len(df.columns)
+
+    df.insert(loc=x, column='New OWGR', value=owgr_new_list)
+    df.insert(loc=x+1, column='OWGR Diff', value=owgr_diff_list)
+    
+    ''' Player Stats: '''
+    df.insert(loc=x+2, column='Tee SG', value=tee_sg_list)
+    df.insert(loc=x+3, column='App SG', value=app_sg_list)
+    df.insert(loc=x+4, column='Aro SG', value=aro_sg_list)
+    df.insert(loc=x+5, column='Putt SG', value=putt_sg_list)
+    df.insert(loc=x+6, column='Drive Dist', value=drive_dist_list)
+    df.insert(loc=x+7, column='Drive Acc', value=drive_acc_list)
+    ''' ~~~~~~~~~~~~~ '''
+
+    ''' Course Stats: '''
+    df.insert(loc=x+8, column='R1 Yardage', value=round_1_yardage_list)
+    df.insert(loc=x+9, column='R2 Yardage', value=round_2_yardage_list)
+    df.insert(loc=x+10, column='R3 Yardage', value=round_3_yardage_list)
+    df.insert(loc=x+11, column='R4 Yardage', value=round_4_yardage_list)
+
+    df.insert(loc=x+12, column='R1 Hole SA', value=round_1_hole_sa_list)
+    df.insert(loc=x+13, column='R2 Hole SA', value=round_2_hole_sa_list)
+    df.insert(loc=x+14, column='R3 Hole SA', value=round_3_hole_sa_list)
+    df.insert(loc=x+15, column='R4 Hole SA', value=round_4_hole_sa_list)
+
+    df.insert(loc=x+16, column='R1 Hole Shape', value=round_1_hole_shape_list)
+    df.insert(loc=x+17, column='R2 Hole Shape', value=round_2_hole_shape_list)
+    df.insert(loc=x+18, column='R3 Hole Shape', value=round_3_hole_shape_list)
+    df.insert(loc=x+19, column='R4 Hole Shape', value=round_4_hole_shape_list)
+
+    df.insert(loc=x+20, column='R1 Green Size', value=round_1_green_size_list)
+    df.insert(loc=x+21, column='R2 Green Size', value=round_2_green_size_list)
+    df.insert(loc=x+22, column='R3 Green Size', value=round_3_green_size_list)
+    df.insert(loc=x+23, column='R4 Green Size', value=round_4_green_size_list)
+
+    df.insert(loc=x+24, column='R1 Green Sand Area', value=round_1_green_sand_area_list)
+    df.insert(loc=x+25, column='R2 Green Sand Area', value=round_2_green_sand_area_list)
+    df.insert(loc=x+26, column='R3 Green Sand Area', value=round_3_green_sand_area_list)
+    df.insert(loc=x+27, column='R4 Green Sand Area', value=round_4_green_sand_area_list)
+
+    df.insert(loc=x+28, column='R1 Fair Sand Area', value=round_1_fair_sand_area_list)
+    df.insert(loc=x+29, column='R2 Fair Sand Area', value=round_2_fair_sand_area_list)
+    df.insert(loc=x+30, column='R3 Fair Sand Area', value=round_3_fair_sand_area_list)
+    df.insert(loc=x+31, column='R4 Fair Sand Area', value=round_4_fair_sand_area_list)
+
+    df.insert(loc=x+32, column='R1 Fair 250', value=round_1_fair_250_list)
+    df.insert(loc=x+33, column='R2 Fair 250', value=round_2_fair_250_list)
+    df.insert(loc=x+34, column='R3 Fair 250', value=round_3_fair_250_list)
+    df.insert(loc=x+35, column='R4 Fair 250', value=round_4_fair_250_list)
+
+    df.insert(loc=x+36, column='R1 Fair 275', value=round_1_fair_275_list)
+    df.insert(loc=x+37, column='R2 Fair 275', value=round_2_fair_275_list)
+    df.insert(loc=x+38, column='R3 Fair 275', value=round_3_fair_275_list)
+    df.insert(loc=x+39, column='R4 Fair 275', value=round_4_fair_275_list)
+
+    df.insert(loc=x+40, column='R1 Fair 300', value=round_1_fair_300_list)
+    df.insert(loc=x+41, column='R2 Fair 300', value=round_2_fair_300_list)
+    df.insert(loc=x+42, column='R3 Fair 300', value=round_3_fair_300_list)
+    df.insert(loc=x+43, column='R4 Fair 300', value=round_4_fair_300_list)
+
+    df.insert(loc=x+44, column='R1 Fair 325', value=round_1_fair_325_list)
+    df.insert(loc=x+45, column='R2 Fair 325', value=round_2_fair_325_list)
+    df.insert(loc=x+46, column='R3 Fair 325', value=round_3_fair_325_list)
+    df.insert(loc=x+47, column='R4 Fair 325', value=round_4_fair_325_list)
+
+    df.insert(loc=x+48, column='R1 Fair 350', value=round_1_fair_350_list)
+    df.insert(loc=x+49, column='R2 Fair 350', value=round_2_fair_350_list)
+    df.insert(loc=x+50, column='R3 Fair 350', value=round_3_fair_350_list)
+    df.insert(loc=x+51, column='R4 Fair 350', value=round_4_fair_350_list)
+
+    df.insert(loc=x+52, column='R1 Round', value=round_1_round_list)
+    df.insert(loc=x+53, column='R2 Round', value=round_2_round_list)
+    df.insert(loc=x+54, column='R3 Round', value=round_3_round_list)
+    df.insert(loc=x+55, column='R4 Round', value=round_4_round_list)
+    ''' ~~~~~~~~~~~~~ '''
+
+    ''' Creating Field Score Avg: The average score on each hole prior to each player's point in time.
+        This will differ for each player. The first to tee off will have no data for this column, and
+        no one in the first group will have any data for this field for the round duration. The
+        second group will have only the first group's data available, and so on. '''
+    # To calculate Field Score Avg and Field Score Median:
+    # Look at every hole in time starting from the first player's tee off time to the last player's
+    # 18th hole finishing time. Record each hole's score for every minute of play. Can I take
+    # the rolling average of each hole?
+
+    df_round_progress = df
 
     ''' Preparing tee times for df_round_progress_final_score: '''
     round_1_tee_time_list = tee_time_list[0::4]
@@ -2094,13 +2458,24 @@ def GetRoundProgress(df_scorecards, df_tee_times, df_owgr, year_list, date_list)
     
     # Overwrite df_scorecards with a newly constructed dataframe with correct
     # score orders and their corresponding to-par scores:
-    df_round_progress = df
     df_round_progress.set_index('Player', inplace=True)
 
-
-
-    ''' Creating dataframe of each round's final score: '''
+    ''' Creating dataframe of each round's final score. This works
+        by grabbing the last row of each column of df_round_progress,
+        and then dropping all course stats features. '''
     master_final_score_list = []
+    course_stats_cols = ['R1 Yardage', 'R2 Yardage', 'R3 Yardage', 'R4 Yardage',
+                         'R1 Hole SA', 'R2 Hole SA', 'R3 Hole SA', 'R4 Hole SA',
+                         'R1 Hole Shape', 'R2 Hole Shape', 'R3 Hole Shape', 'R4 Hole Shape',
+                         'R1 Green Size', 'R2 Green Size', 'R3 Green Size', 'R4 Green Size',
+                         'R1 Green Sand Area', 'R2 Green Sand Area', 'R3 Green Sand Area', 'R4 Green Sand Area',
+                         'R1 Fair Sand Area', 'R2 Fair Sand Area', 'R3 Fair Sand Area', 'R4 Fair Sand Area',
+                         'R1 Fair 250', 'R2 Fair 250', 'R3 Fair 250', 'R4 Fair 250',
+                         'R1 Fair 275', 'R2 Fair 275', 'R3 Fair 275', 'R4 Fair 275',
+                         'R1 Fair 300', 'R2 Fair 300', 'R3 Fair 300', 'R4 Fair 300',
+                         'R1 Fair 325', 'R2 Fair 325', 'R3 Fair 325', 'R4 Fair 325',
+                         'R1 Fair 350', 'R2 Fair 350', 'R3 Fair 350', 'R4 Fair 350']
+
     # player_list from scorecards has duplicate names, using df index to avoid duplicates:
     player_index_list = df_round_progress.index.drop_duplicates().values.tolist()
     for player in player_index_list:
@@ -2109,6 +2484,7 @@ def GetRoundProgress(df_scorecards, df_tee_times, df_owgr, year_list, date_list)
         master_final_score_list.append(final_score_list)
     cols = ['Player'] + df.columns.tolist()
     df_round_progress_final_score = pd.DataFrame(master_final_score_list, columns=cols)
+    df_round_progress_final_score.drop(columns=course_stats_cols, inplace=True) # Removing all course stats columns
 
     ''' Inserting tee times into df_round_progress_final_score: '''
     df_round_progress_final_score.insert(loc=1, column='R1 Tee Time', value=round_1_tee_time_list)
@@ -2117,7 +2493,6 @@ def GetRoundProgress(df_scorecards, df_tee_times, df_owgr, year_list, date_list)
     df_round_progress_final_score.insert(loc=4, column='R4 Tee Time', value=round_4_tee_time_list)
 
     df_round_progress_final_score.set_index('Player', inplace=True)
-
 
 
     # Send to pickle:
@@ -2178,7 +2553,7 @@ def RoundProgressEDA(df_round_progress):
 
 
 
-''' Match df_round_progress to the weather '''
+''' Matching df_round_progress to the weather '''
 def MakeTrainingSet(df_proc_imp_weather, df_round_progress, df_round_progress_final_score, year_list, date_list):
 
     ## NOT USING THIS BUT MAY BE USEFUL FOR IMPUTING MINUTE-RESOLUTION SCORE DATA
@@ -2200,6 +2575,7 @@ def MakeTrainingSet(df_proc_imp_weather, df_round_progress, df_round_progress_fi
 
     player_list = df_round_progress.index.get_level_values(0).drop_duplicates().tolist()
     #######  Should rename df_round_progress columns to R1 Time End, etc
+    rX_round_list = ['R1 Round', 'R2 Round', 'R3 Round', 'R4 Round']
     rX_tee_time_list = ['R1 Tee Time', 'R2 Tee Time', 'R3 Tee Time', 'R4 Tee Time']
     rX_time1_list = ['R1 Time Start', 'R2 Time Start', 'R3 Time Start', 'R4 Time Start']
     rX_time2_list = ['R1 Time', 'R2 Time', 'R3 Time', 'R4 Time']
@@ -2207,6 +2583,18 @@ def MakeTrainingSet(df_proc_imp_weather, df_round_progress, df_round_progress_fi
     rX_pin_list = ['R1 Pin', 'R2 Pin', 'R3 Pin', 'R4 Pin']
     rX_to_par_cs_list = ['R1 To Par CS', 'R2 To Par CS', 'R3 To Par CS', 'R4 To Par CS']
     rX_to_par_list = ['R1 To Par', 'R2 To Par', 'R3 To Par', 'R4 To Par']
+    # Course Features lists:
+    rX_yardage_list = ['R1 Yardage', 'R2 Yardage', 'R3 Yardage', 'R4 Yardage']
+    rX_hole_sa_list = ['R1 Hole SA', 'R2 Hole SA', 'R3 Hole SA', 'R4 Hole SA']
+    rX_hole_shape_list = ['R1 Hole Shape', 'R2 Hole Shape', 'R3 Hole Shape', 'R4 Hole Shape']
+    rX_green_size_list = ['R1 Green Size', 'R2 Green Size', 'R3 Green Size', 'R4 Green Size']
+    rX_green_sand_area_list = ['R1 Green Sand Area', 'R2 Green Sand Area', 'R3 Green Sand Area', 'R4 Green Sand Area']
+    rX_fair_sand_area_list = ['R1 Fair Sand Area', 'R2 Fair Sand Area', 'R3 Fair Sand Area', 'R4 Fair Sand Area']
+    rX_fair_250 = ['R1 Fair 250', 'R2 Fair 250', 'R3 Fair 250', 'R4 Fair 250']
+    rX_fair_275 = ['R1 Fair 275', 'R2 Fair 275', 'R3 Fair 275', 'R4 Fair 275']
+    rX_fair_300 = ['R1 Fair 300', 'R2 Fair 300', 'R3 Fair 300', 'R4 Fair 300']
+    rX_fair_325 = ['R1 Fair 325', 'R2 Fair 325', 'R3 Fair 325', 'R4 Fair 325']
+    rX_fair_350 = ['R1 Fair 350', 'R2 Fair 350', 'R3 Fair 350', 'R4 Fair 350']
 
     ''' Making df_training_set: contains individual hole data '''
     df_training_set = pd.DataFrame() # Will contain data for each hole
@@ -2214,14 +2602,19 @@ def MakeTrainingSet(df_proc_imp_weather, df_round_progress, df_round_progress_fi
     for i,player in enumerate(player_list):
         p = round((i+1)/n*100, 1)
         print('Progress:', p,'%')
-        
         ''' For every player, the datetime, score and owgr must be grabbed from
             df_round_progress. There may be a way to do this without iteration. '''
-        for rtt, rt1, rt2, rh, rp, rtp in zip(rX_tee_time_list, rX_time1_list, rX_time2_list, rX_hole_list, rX_pin_list, rX_to_par_list):
+        for rtt, rt1, rt2, r, rh, rp, rtpcs, rtp, ry, rhsa, rhs, rgs, rgsa, rfsa, rf250, rf275, rf300, rf325, rf350 in zip(rX_tee_time_list, rX_time1_list, rX_time2_list, rX_round_list, rX_hole_list, rX_pin_list,
+                                                                                                                        rX_to_par_cs_list, rX_to_par_list, rX_yardage_list,
+                                                                                                                        rX_hole_sa_list, rX_hole_shape_list, rX_green_size_list, rX_green_sand_area_list,
+                                                                                                                        rX_fair_sand_area_list, rX_fair_250, rX_fair_275, rX_fair_300, rX_fair_325, rX_fair_350):
+            
             # Dataframe to merge weather to: df = special selection of df_round_progress:
-            df = df_round_progress.loc[player][[rt2, rh, rp, rtp, 'New OWGR', 'OWGR Diff']] # Don't need rt1. rcs is round cumsum from when rX_to_par_cs_list was used instead of rX_to_par_list
+            df = df_round_progress.loc[player][[rt2, r, rh, rp, rtpcs, rtp, ry, rhsa, rhs, rgs, rgsa, rfsa, rf250, rf275, rf300, rf325, rf350,
+                                                'New OWGR', 'OWGR Diff', 'Tee SG','App SG','Aro SG','Putt SG','Drive Dist','Drive Acc']] # Don't need rt1. rtpcs is round cumsum from when rX_to_par_cs_list was used instead of rX_to_par_list
+            #print('df:\n', df)
             df.reset_index(inplace=True)
-            df.rename(columns={rt2:'DateTime', rh:'Hole', rp:'Pin', rtp:'Score'}, inplace=True)
+            df.rename(columns={rt2:'DateTime', r:'Round', rh:'Hole', rp:'Pin', rtpcs:'Score CS', rtp:'Score', ry:'Yards', rhsa:'Hole SA', rhs:'Hole Shape', rgs:'Green Size', rgsa:'Green Sand Area', rfsa:'Fair Sand Area', rf250:'Fair 250', rf275:'Fair 275', rf300:'Fair 300', rf325:'Fair 325', rf350:'Fair 350'}, inplace=True)
 
             ''' MATCHING ROUND PROGRESS DATA TO WEATHER DATA: '''
             ''' Get df_proc_imp_weather data for time range from hole time recorded
@@ -2246,9 +2639,11 @@ def MakeTrainingSet(df_proc_imp_weather, df_round_progress, df_round_progress_fi
             cols_weather = ['DateTime'] + df_mean.index.values.tolist() # Index values are column names because df_mean is a series
             df_weather = pd.DataFrame(weather_list, columns=cols_weather)
             df_merged = df.merge(df_weather, how='left', on='DateTime')
+            #print('df_merged.head():\n', df_merged.head())
             # df_training_set contains scores and weather for each hole's time duration
             df_training_set = df_training_set.append(df_merged)
-
+            #print('len(df_training_set):\n', len(df_training_set))
+            #print('df_training_set.columns:\n', df_training_set.columns)
 
     ''' Making df2_training_set: contains individual round data: '''
     df2_training_set = pd.DataFrame() # Will contain data for each round
@@ -2257,11 +2652,11 @@ def MakeTrainingSet(df_proc_imp_weather, df_round_progress, df_round_progress_fi
     player_list = df_round_progress_final_score.index.drop_duplicates().values.tolist()
     n = len(player_list)
     round_list = [1,2,3,4]*n # For insertion into df2_training_set once it is created (see below for loop)
-    for rtt, rt2, rcs in zip(rX_tee_time_list, rX_time2_list, rX_to_par_cs_list):
+    for rtt, rt2, rtpcs in zip(rX_tee_time_list, rX_time2_list, rX_to_par_cs_list):
         # Dataframe to merge weather to: df2 = special selection of df_round_progress_final_score:
-        df2 = df_round_progress_final_score[[rtt, rt2, rcs, 'New OWGR', 'OWGR Diff']]
+        df2 = df_round_progress_final_score[[rtt, rt2, rtpcs, 'New OWGR', 'OWGR Diff', 'Tee SG','App SG','Aro SG','Putt SG','Drive Dist','Drive Acc']]
         df2.reset_index(inplace=True)
-        df2.rename(columns={player: 'Player', rtt: 'Tee Time', rt2:'DateTime', rcs:'Score'}, inplace=True)
+        df2.rename(columns={player: 'Player', rtt: 'Tee Time', rt2:'DateTime', rtpcs:'Score'}, inplace=True)
         #print('df2:\n', df2.to_string())
         #print('len(df2:\n', len(df2))
         #print('len(player_list):', len(player_list))
@@ -2293,30 +2688,63 @@ def MakeTrainingSet(df_proc_imp_weather, df_round_progress, df_round_progress_fi
     df2_training_set.insert(loc=1, column='Round', value=round_list)
 
     ''' Removing df_training_set rows that contain
-        NaNs for cut rounds or bad score collection: '''
+        NaNs for cut rounds or incomplete score collection: '''
     df_training_set.dropna(inplace=True)
     df2_training_set.dropna(inplace=True)
 
+
     ''' Changing Hole and OWGR types to int: '''
+    df_training_set['Round'] = df_training_set['Round'].astype(int)
     df_training_set['Hole'] = df_training_set['Hole'].astype(int)
     df_training_set['New OWGR'] = df_training_set['New OWGR'].astype(int)
     df_training_set['OWGR Diff'] = df_training_set['OWGR Diff'].astype(int)
-    
+
+    ''' Creating Hole SA from each Round,Hole combination of the tournament
+        Joining df['Hole SA'] to df_training_set with shared Round,Hole multi-indices. '''
+    round_list = [1,2,3,4]
+    hole_list = list(range(1,19))
+    r_h_hsa_list = []
+    for rnd in round_list:
+        for hole in hole_list:
+            hole_sa = df_training_set.loc[[rnd,hole]]['Score'].mean()
+            r_h_hsa_list.append([rnd,hole,hole_sa])
+
+    df = pd.DataFrame(r_h_hsa_list, columns=['Round','Hole','Hole SA'])
+    df.set_index(['Round','Hole'], inplace=True) # df with indices of Round, Hole, and data of Hole SA
+    #print('df:\n', df)
+    df_training_set.reset_index(inplace=True)
+    df_training_set.set_index(['Round','Hole'], inplace=True) # df_training_set with indices of Round, Hole
+    #print('df_training_set:\n', df_training_set)
+    df_training_set.drop(columns=['Hole SA'], inplace=True)
+    df_training_set = df_training_set.assign(col=df['Hole SA'])
+    print('df_training_set before column rename:\n', df_training_set, df_training_set.columns)
+    df_training_set.rename(columns={'col':'Hole SA'}, inplace=True)
+    df_training_set.reset_index(inplace=True)
+    print('df_training_set after adding new Hole SA:\n', df_training_set)
+    ''' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '''
+
     df2_training_set['Round'] = df2_training_set['Round'].astype(int)
     df2_training_set['New OWGR'] = df2_training_set['New OWGR'].astype(int)
     df2_training_set['OWGR Diff'] = df2_training_set['OWGR Diff'].astype(int)
 
-    
-    # Putting Score column at far right
+    # Putting Score CS column at far right of df_training_set:
+    df_scores = df_training_set.pop('Score CS')
+    df_training_set['Score CS'] = df_scores
+    df_training_set['Score CS'] = df_training_set['Score CS'].astype(int)
+
+    # Putting Score column at far right of df_training_set:
     df_scores = df_training_set.pop('Score')
     df_training_set['Score'] = df_scores
     df_training_set['Score'] = df_training_set['Score'].astype(int)
 
+    # Putting Score columns at far right of df2_training_set:
+    # Note: Score is end-of-round cumulative sum score relative-to-par in df2_training_set.
+    # This is the only score that makes sense at the round level.
     df_scores = df2_training_set.pop('Score')
     df2_training_set['Score'] = df_scores
     df2_training_set['Score'] = df2_training_set['Score'].astype(int)
-    
 
+    # Pickling out:
     df_training_set.to_pickle('us_open_training_set.pickle')
     df2_training_set.to_pickle('us_open_training_set_2.pickle')
     print('df_training_set:\n', df_training_set)
@@ -2330,114 +2758,541 @@ def MakeTrainingSet(df_proc_imp_weather, df_round_progress, df_round_progress_fi
 ''' Training Set EDA: '''
 def TrainingSetEDA(df_training_set):
 
-    df = df_training_set.drop(columns=['Player','Hole'])
-    df.set_index('DateTime', inplace=True)
-    df.sort_index(inplace=True)
-    df.dropna(inplace=True)
-    print('df:\n', df)
-
     ''' Plotting Training Set features '''
-    df_rolling_30m_avg = df.rolling('1200s', min_periods=20).mean()
-    df_rolling_1hr_avg = df.rolling('3600s', min_periods=60).mean()
-    df_rolling_2hr_avg = df.rolling('7200s', min_periods=120).mean()
-
-    plt.figure()
-    
-    plt.subplot(3,2,1)
-    plt.plot(df_rolling_30m_avg.index, df_rolling_30m_avg['New OWGR'],c='orange',alpha=0.5)
-    plt.plot(df_rolling_1hr_avg.index, df_rolling_1hr_avg['New OWGR'],c='k',alpha=0.7)
-    plt.ylabel('OWGR'); plt.xticks(rotation=45); plt.xticks(rotation=45)
-    frame1 = plt.gca(); frame1.axes.xaxis.set_ticklabels([])
-
-    plt.subplot(3,2,2)
-    plt.plot(df_rolling_30m_avg.index, df_rolling_30m_avg['OWGR Diff'],c='c',alpha=0.5)
-    plt.plot(df_rolling_1hr_avg.index, df_rolling_1hr_avg['OWGR Diff'],c='k',alpha=0.7)
-    plt.ylabel('OWGR 1 mon change'); plt.xticks(rotation=45)
-    frame2 = plt.gca(); frame2.axes.xaxis.set_ticklabels([])
-
-    plt.subplot(3,2,3)
-    plt.plot(df_rolling_30m_avg.index, df_rolling_30m_avg['Temperature'],c='c',alpha=0.5)
-    plt.plot(df_rolling_1hr_avg.index, df_rolling_1hr_avg['Temperature'],c='k',alpha=0.7)
-    plt.plot(df_rolling_30m_avg.index, df_rolling_30m_avg['Humidity'],c='m',alpha=0.5)
-    plt.plot(df_rolling_1hr_avg.index, df_rolling_1hr_avg['Humidity'],c='k',alpha=0.7)
-    plt.ylabel('Temp & Humidity'); plt.xticks(rotation=45)
-    frame3 = plt.gca(); frame3.axes.xaxis.set_ticklabels([])
-
-    plt.subplot(3,2,4)
-    plt.plot(df_rolling_30m_avg.index, df_rolling_30m_avg['Wind Speed'],c='b',alpha=0.5)
-    plt.plot(df_rolling_1hr_avg.index, df_rolling_1hr_avg['Wind Speed'],c='k',alpha=0.7)
-    plt.ylabel('Wind Speed'); plt.xticks(rotation=45)
-    frame4 = plt.gca(); frame4.axes.xaxis.set_ticklabels([])
-    # Gets rid of ticks and axis text: plt.xticks([])
-
-    plt.subplot(3,2,5)
-    plt.plot(df_rolling_30m_avg.index, df_rolling_30m_avg['Wind'],c='brown',alpha=0.5)
-    plt.plot(df_rolling_1hr_avg.index, df_rolling_1hr_avg['Wind'],c='k',alpha=0.7)
-    plt.xlabel('Date-Time'); plt.ylabel('Wind'); plt.xticks(rotation=45)
-
-    plt.subplot(3,2,6)
-    plt.plot(df_rolling_30m_avg.index, df_rolling_30m_avg['Score'],c='g',alpha=0.5)
-    plt.plot(df_rolling_1hr_avg.index, df_rolling_1hr_avg['Score'],c='k',alpha=0.7)
-    plt.xlabel('Date-Time'); plt.ylabel('Score Rel. To Par'); plt.xticks(rotation=45)
-               
-    plt.subplots_adjust(left=0.12, bottom=0.18, wspace=0.2, hspace=0.25)
-
-    fig = plt.gcf()
-    fig.set_size_inches(11,7) # X,Y is width,heighth
-    fig.savefig('2018 US Open - Training Set Rolling Averages - Weather and OWGR.png', bbox_inches='tight')
-    
-    plt.show()
-    '''~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~'''
-
-
-    ''' Plot of each day's scores '''
-    # I should have a round number column I can reference instead of the date
-    # Or import the date_list
-    df_rolling_R1_score_20m_avg = df.loc['2018-06-14'].rolling('1200s', min_periods=20).mean()
-    df_rolling_R1_score_1hr_avg = df.loc['2018-06-14'].rolling('3600s', min_periods=60).mean()
-    df_rolling_R2_score_20m_avg = df.loc['2018-06-15'].rolling('1200s', min_periods=20).mean()
-    df_rolling_R2_score_1hr_avg = df.loc['2018-06-15'].rolling('3600s', min_periods=60).mean()
-    df_rolling_R3_score_20m_avg = df.loc['2018-06-16'].rolling('1200s', min_periods=20).mean()
-    df_rolling_R3_score_1hr_avg = df.loc['2018-06-16'].rolling('3600s', min_periods=60).mean()
-    df_rolling_R4_score_20m_avg = df.loc['2018-06-17'].rolling('1200s', min_periods=20).mean()
-    df_rolling_R4_score_1hr_avg = df.loc['2018-06-17'].rolling('3600s', min_periods=60).mean()
-    
-    plt.figure()
-    
-    plt.subplot(4,1,1)
-    plt.plot(df_rolling_R1_score_20m_avg.index, df_rolling_R1_score_20m_avg['Score'], c='g', alpha=0.5)
-    plt.plot(df_rolling_R1_score_1hr_avg.index, df_rolling_R1_score_1hr_avg['Score'], c='k', alpha=0.7)
-    plt.xlabel(''); plt.ylabel('R1 Score'); plt.ylim(-0.3,0.7)
-    frame1 = plt.gca(); frame1.axes.xaxis.set_ticklabels([])
-
-    plt.subplot(4,1,2)
-    plt.plot(df_rolling_R2_score_20m_avg.index, df_rolling_R2_score_20m_avg['Score'], c='g', alpha=0.5)
-    plt.plot(df_rolling_R2_score_1hr_avg.index, df_rolling_R2_score_1hr_avg['Score'], c='k', alpha=0.7)
-    plt.xlabel(''); plt.ylabel('R2 Score'); plt.ylim(-0.3,0.7)
-    frame2 = plt.gca(); frame2.axes.xaxis.set_ticklabels([])
-
-    plt.subplot(4,1,3)
-    plt.plot(df_rolling_R3_score_20m_avg.index, df_rolling_R3_score_20m_avg['Score'], c='g', alpha=0.5)
-    plt.plot(df_rolling_R3_score_1hr_avg.index, df_rolling_R3_score_1hr_avg['Score'], c='k', alpha=0.7)
-    plt.xlabel(''); plt.ylabel('R3 Score'); plt.ylim(-0.3,0.7)
-    frame3 = plt.gca(); frame3.axes.xaxis.set_ticklabels([])
-
-    plt.subplot(4,1,4)
-    plt.plot(df_rolling_R4_score_20m_avg.index, df_rolling_R4_score_20m_avg['Score'], c='g', alpha=0.5)
-    plt.plot(df_rolling_R4_score_1hr_avg.index, df_rolling_R4_score_1hr_avg['Score'], c='k', alpha=0.7)
-    plt.xlabel('DateTime'); plt.ylabel('R4 Score'); plt.xticks(rotation=45); plt.ylim(-0.3,0.7)
-
-    fig = plt.gcf()
-    fig.set_size_inches(6,5)
-    fig.savefig('2018 US Open - Training Set Rolling Averages - Scores.png', bbox_inches='tight')
-    
-    plt.show()
+##    df = df_training_set.drop(columns=['Player','Hole','Pin','Hole Shape'])
+##    df.set_index('DateTime', inplace=True)
+##    df.sort_index(inplace=True)
+##    df.dropna(inplace=True)
+##    
+##    # Creating rolling averages of df with differing period:
+##    df_rolling_30m_avg = df.rolling('1200s', min_periods=20).mean()
+##    df_rolling_1hr_avg = df.rolling('3600s', min_periods=60).mean()
+##    df_rolling_2hr_avg = df.rolling('7200s', min_periods=120).mean()
+##
+##    plt.figure()
+##    
+##    plt.subplot(3,2,1)
+##    plt.plot(df_rolling_30m_avg.index, df_rolling_30m_avg['New OWGR'],c='orange',alpha=0.5)
+##    plt.plot(df_rolling_1hr_avg.index, df_rolling_1hr_avg['New OWGR'],c='k',alpha=0.7)
+##    plt.ylabel('OWGR'); plt.xticks(rotation=45); plt.xticks(rotation=45)
+##    frame1 = plt.gca(); frame1.axes.xaxis.set_ticklabels([])
+##
+##    plt.subplot(3,2,2)
+##    plt.plot(df_rolling_30m_avg.index, df_rolling_30m_avg['OWGR Diff'],c='c',alpha=0.5)
+##    plt.plot(df_rolling_1hr_avg.index, df_rolling_1hr_avg['OWGR Diff'],c='k',alpha=0.7)
+##    plt.ylabel('OWGR 1 mon change'); plt.xticks(rotation=45)
+##    frame2 = plt.gca(); frame2.axes.xaxis.set_ticklabels([])
+##
+##    plt.subplot(3,2,3)
+##    plt.plot(df_rolling_30m_avg.index, df_rolling_30m_avg['Temperature'],c='c',alpha=0.5)
+##    plt.plot(df_rolling_1hr_avg.index, df_rolling_1hr_avg['Temperature'],c='k',alpha=0.7)
+##    plt.plot(df_rolling_30m_avg.index, df_rolling_30m_avg['Humidity'],c='m',alpha=0.5)
+##    plt.plot(df_rolling_1hr_avg.index, df_rolling_1hr_avg['Humidity'],c='k',alpha=0.7)
+##    plt.ylabel('Temp & Humidity'); plt.xticks(rotation=45)
+##    frame3 = plt.gca(); frame3.axes.xaxis.set_ticklabels([])
+##
+##    plt.subplot(3,2,4)
+##    plt.plot(df_rolling_30m_avg.index, df_rolling_30m_avg['Wind Speed'],c='b',alpha=0.5)
+##    plt.plot(df_rolling_1hr_avg.index, df_rolling_1hr_avg['Wind Speed'],c='k',alpha=0.7)
+##    plt.ylabel('Wind Speed'); plt.xticks(rotation=45)
+##    frame4 = plt.gca(); frame4.axes.xaxis.set_ticklabels([])
+##    # Gets rid of ticks and axis text: plt.xticks([])
+##
+##    plt.subplot(3,2,5)
+##    plt.plot(df_rolling_30m_avg.index, df_rolling_30m_avg['Wind'],c='brown',alpha=0.5)
+##    plt.plot(df_rolling_1hr_avg.index, df_rolling_1hr_avg['Wind'],c='k',alpha=0.7)
+##    plt.xlabel('Date-Time'); plt.ylabel('Wind'); plt.xticks(rotation=45)
+##
+##    plt.subplot(3,2,6)
+##    plt.plot(df_rolling_30m_avg.index, df_rolling_30m_avg['Score'],c='g',alpha=0.5)
+##    plt.plot(df_rolling_1hr_avg.index, df_rolling_1hr_avg['Score'],c='k',alpha=0.7)
+##    plt.xlabel('Date-Time'); plt.ylabel('Score Rel. To Par'); plt.xticks(rotation=45)
+##               
+##    plt.subplots_adjust(left=0.12, bottom=0.18, wspace=0.2, hspace=0.25)
+##
+##    fig = plt.gcf()
+##    fig.set_size_inches(11,7) # X,Y is width,heighth
+##    fig.savefig('2018 US Open - Training Set Rolling Averages - Weather and OWGR.png', bbox_inches='tight')
+##    
+##    plt.show()
+##    '''~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~'''
+##
+##
+##    ''' Plot of each day's scores '''
+##    # I should have a round number column I can reference instead of the date
+##    # Or import the date_list
+##    df_rolling_R1_score_20m_avg = df.loc['2018-06-14'].rolling('1200s', min_periods=20).mean()
+##    df_rolling_R1_score_1hr_avg = df.loc['2018-06-14'].rolling('3600s', min_periods=60).mean()
+##    df_rolling_R2_score_20m_avg = df.loc['2018-06-15'].rolling('1200s', min_periods=20).mean()
+##    df_rolling_R2_score_1hr_avg = df.loc['2018-06-15'].rolling('3600s', min_periods=60).mean()
+##    df_rolling_R3_score_20m_avg = df.loc['2018-06-16'].rolling('1200s', min_periods=20).mean()
+##    df_rolling_R3_score_1hr_avg = df.loc['2018-06-16'].rolling('3600s', min_periods=60).mean()
+##    df_rolling_R4_score_20m_avg = df.loc['2018-06-17'].rolling('1200s', min_periods=20).mean()
+##    df_rolling_R4_score_1hr_avg = df.loc['2018-06-17'].rolling('3600s', min_periods=60).mean()
+##    
+##    plt.figure()
+##    
+##    plt.subplot(4,1,1)
+##    plt.plot(df_rolling_R1_score_20m_avg.index, df_rolling_R1_score_20m_avg['Score'], c='g', alpha=0.5)
+##    plt.plot(df_rolling_R1_score_1hr_avg.index, df_rolling_R1_score_1hr_avg['Score'], c='k', alpha=0.7)
+##    plt.xlabel(''); plt.ylabel('R1 Score'); plt.ylim(-0.3,0.7)
+##    frame1 = plt.gca(); frame1.axes.xaxis.set_ticklabels([])
+##
+##    plt.subplot(4,1,2)
+##    plt.plot(df_rolling_R2_score_20m_avg.index, df_rolling_R2_score_20m_avg['Score'], c='g', alpha=0.5)
+##    plt.plot(df_rolling_R2_score_1hr_avg.index, df_rolling_R2_score_1hr_avg['Score'], c='k', alpha=0.7)
+##    plt.xlabel(''); plt.ylabel('R2 Score'); plt.ylim(-0.3,0.7)
+##    frame2 = plt.gca(); frame2.axes.xaxis.set_ticklabels([])
+##
+##    plt.subplot(4,1,3)
+##    plt.plot(df_rolling_R3_score_20m_avg.index, df_rolling_R3_score_20m_avg['Score'], c='g', alpha=0.5)
+##    plt.plot(df_rolling_R3_score_1hr_avg.index, df_rolling_R3_score_1hr_avg['Score'], c='k', alpha=0.7)
+##    plt.xlabel(''); plt.ylabel('R3 Score'); plt.ylim(-0.3,0.7)
+##    frame3 = plt.gca(); frame3.axes.xaxis.set_ticklabels([])
+##
+##    plt.subplot(4,1,4)
+##    plt.plot(df_rolling_R4_score_20m_avg.index, df_rolling_R4_score_20m_avg['Score'], c='g', alpha=0.5)
+##    plt.plot(df_rolling_R4_score_1hr_avg.index, df_rolling_R4_score_1hr_avg['Score'], c='k', alpha=0.7)
+##    plt.xlabel('DateTime'); plt.ylabel('R4 Score'); plt.xticks(rotation=45); plt.ylim(-0.3,0.7)
+##
+##    fig = plt.gcf()
+##    fig.set_size_inches(6,5)
+##    fig.savefig('2018 US Open - Rolling Averages - Scores.png', bbox_inches='tight')
+##    
+##    plt.show()
     '''~~~~~~~~~~~~~~~~~~~~~~~~~~~'''
+
+
+
+
+
+    ''' Plotting linear fits of the following:
+##        Tee SG vs Drive Dist,
+##        Tee SG vs Drive Acc,
+##        Feature Engineering that needs to be done for the training set:
+##        Hole Length and Drive Dist (or Hole Length and Tee SG)
+##        Drive Acc and Fair 250, Fair 275, Fair 300, Fair 325, Fair 350
+##        Drive Acc and Rough Height (Rough Height doesn't exist yet)
+##        App SG and Green Sand Area
+##        App SG and Green Size '''
+##
+##
+##    ####  Model for how to do linear fits:  ####
+##    # x = df['a']; y = df['b']
+##    # coefs_y_vs_x = poly.polyfit(x,y,poly order) <- Making fit coefficients
+##    # function_fit_y_vs_x = poly.polyval(x,coefs_y_vs_x) <- Making function fit with coefficients
+##    # plt.plot(x, function_fit_y_vs_x) <- Plotting the fit
+##    ############################################
+##
+##    df = df_training_set.drop(columns=['Hole','Pin','Hole Shape'])
+##    df = df.drop_duplicates(subset='Player', keep='first')
+##    
+##    drive_dist = df['Drive Dist'].values.tolist()
+##    drive_acc = df['Drive Acc'].values.tolist()
+##    tee_sg = df['Tee SG'].values.tolist()
+##    print('tee_sg length: {0:3d}, drive_dist length: {1:3d}, drive_acc length: {2:3d}'.format(len(tee_sg), len(drive_dist), len(drive_acc)))
+##    coefs_tee_sg_vs_drive_dist = poly.polyfit(drive_dist, tee_sg, 1)
+##    coefs_tee_sg_vs_drive_acc = poly.polyfit(drive_acc, tee_sg, 1)
+##    coefs_drive_acc_vs_dist = poly.polyfit(drive_dist, drive_acc, 1)
+##    ffit_tee_sg_vs_drive_dist = poly.polyval(drive_dist, coefs_tee_sg_vs_drive_dist)
+##    ffit_tee_sg_vs_drive_acc = poly.polyval(drive_acc, coefs_tee_sg_vs_drive_acc)
+##    ffit_drive_acc_vs_dist = poly.polyval(drive_dist, coefs_drive_acc_vs_dist)
+##
+##    # Compare player stats to each other, and course features to each other, but not
+##    # player and course features. Course features are unique to each hole, but player
+##    # stats aren't that granular (e.g. they're identical for every course feature).
+##
+##    plt.figure(dpi=160)
+##
+##    plt.subplot(1,3,1)
+##    plt.scatter(df['Drive Dist'], df['Drive Acc'], marker='o', facecolor='none', edgecolor='g')
+##    plt.plot(drive_dist, ffit_drive_acc_vs_dist, c='k')
+##    plt.xlabel('Drive distance, yds'); plt.ylabel('Drive acc, %')
+##    
+##    plt.subplot(1,3,2)
+##    plt.scatter(df['Drive Dist'], df['Tee SG'], marker='o', facecolor='none', edgecolor='m')
+##    plt.plot(drive_dist, ffit_tee_sg_vs_drive_dist, c='k')
+##    plt.xlabel('Drive distance, yds'); plt.ylabel('Tee SG')
+##
+##    plt.subplot(1,3,3)
+##    plt.scatter(df['Drive Acc'], df['Tee SG'], marker='o', facecolor='none', edgecolor='b')
+##    plt.plot(drive_acc, ffit_tee_sg_vs_drive_acc, c='k')
+##    plt.xlabel('Drive accuracy, %'); plt.ylabel('Tee SG')
+##
+##    '''
+##    This plot tries to compare player stats to hole stats. Is there
+##    a way to do this so that it's useful?
+##    plt.subplot(4,1,4)
+##    plt.scatter(df['Yards'], df['Tee SG'], marker='o', facecolor='none', edgecolor='r')
+##    plt.xlabel('Hole length, yds'); plt.ylabel('Tee SG')
+##    '''
+##    
+##    plt.subplots_adjust(left=0.1, bottom=0.3, wspace=0.65)
+##
+##    fig = plt.gcf()
+##    fig.set_size_inches(6,2)
+##    fig.savefig('2018 US Open - Training Set - Hole Level - Player Stats vs Player Stats.png', bbox_inches='tight')
+##
+##    plt.show()
+    ''' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '''
+
+
+
+
+
+    ''' Plotting the effect of player stats on final round score: '''
+##    df = df2_training_set
+##    df.reset_index(inplace=True)
+##    df.set_index('Round', inplace=True)
+##    print('df first round:\n', df.loc[1])
+##
+##    x_tee_sg_round_1 = df.loc[1]['Tee SG'].values.tolist()
+##    x_tee_sg_round_2 = df.loc[2]['Tee SG'].values.tolist()
+##    x_tee_sg_round_3 = df.loc[3]['Tee SG'].values.tolist()
+##    x_tee_sg_round_4 = df.loc[4]['Tee SG'].values.tolist()
+##
+##    y_tee_sg_round_1 = df.loc[1]['Score'].values.tolist()
+##    y_tee_sg_round_2 = df.loc[2]['Score'].values.tolist()
+##    y_tee_sg_round_3 = df.loc[3]['Score'].values.tolist()
+##    y_tee_sg_round_4 = df.loc[4]['Score'].values.tolist()
+##    
+##    coefs_tee_sg_round_1 = poly.polyfit(x_tee_sg_round_1, y_tee_sg_round_1, deg=1)
+##    coefs_tee_sg_round_2 = poly.polyfit(x_tee_sg_round_2, y_tee_sg_round_2, deg=1)
+##    coefs_tee_sg_round_3 = poly.polyfit(x_tee_sg_round_3, y_tee_sg_round_3, deg=1)
+##    coefs_tee_sg_round_4 = poly.polyfit(x_tee_sg_round_4, y_tee_sg_round_4, deg=1)
+##
+##    ffit_tee_sg_round_1 = poly.polyval(x_tee_sg_round_1, coefs_tee_sg_round_1)
+##    ffit_tee_sg_round_2 = poly.polyval(x_tee_sg_round_2, coefs_tee_sg_round_2)
+##    ffit_tee_sg_round_3 = poly.polyval(x_tee_sg_round_3, coefs_tee_sg_round_3)
+##    ffit_tee_sg_round_4 = poly.polyval(x_tee_sg_round_4, coefs_tee_sg_round_4)
+##
+##    # Round Score vs App SG
+##    x_app_sg_round_1 = df.loc[1]['App SG'].values.tolist()
+##    x_app_sg_round_2 = df.loc[2]['App SG'].values.tolist()
+##    x_app_sg_round_3 = df.loc[3]['App SG'].values.tolist()
+##    x_app_sg_round_4 = df.loc[4]['App SG'].values.tolist()
+##
+##    y_app_sg_round_1 = df.loc[1]['Score'].values.tolist()
+##    y_app_sg_round_2 = df.loc[2]['Score'].values.tolist()
+##    y_app_sg_round_3 = df.loc[3]['Score'].values.tolist()
+##    y_app_sg_round_4 = df.loc[4]['Score'].values.tolist()
+##    
+##    coefs_app_sg_round_1 = poly.polyfit(x_app_sg_round_1, y_app_sg_round_1, deg=1)
+##    coefs_app_sg_round_2 = poly.polyfit(x_app_sg_round_2, y_app_sg_round_2, deg=1)
+##    coefs_app_sg_round_3 = poly.polyfit(x_app_sg_round_3, y_app_sg_round_3, deg=1)
+##    coefs_app_sg_round_4 = poly.polyfit(x_app_sg_round_4, y_app_sg_round_4, deg=1)
+##
+##    ffit_app_sg_round_1 = poly.polyval(x_app_sg_round_1, coefs_app_sg_round_1)
+##    ffit_app_sg_round_2 = poly.polyval(x_app_sg_round_2, coefs_app_sg_round_2)
+##    ffit_app_sg_round_3 = poly.polyval(x_app_sg_round_3, coefs_app_sg_round_3)
+##    ffit_app_sg_round_4 = poly.polyval(x_app_sg_round_4, coefs_app_sg_round_4)
+##
+##    # Round Score vs Aro SG
+##    x_aro_sg_round_1 = df.loc[1]['Aro SG'].values.tolist()
+##    x_aro_sg_round_2 = df.loc[2]['Aro SG'].values.tolist()
+##    x_aro_sg_round_3 = df.loc[3]['Aro SG'].values.tolist()
+##    x_aro_sg_round_4 = df.loc[4]['Aro SG'].values.tolist()
+##
+##    y_aro_sg_round_1 = df.loc[1]['Score'].values.tolist()
+##    y_aro_sg_round_2 = df.loc[2]['Score'].values.tolist()
+##    y_aro_sg_round_3 = df.loc[3]['Score'].values.tolist()
+##    y_aro_sg_round_4 = df.loc[4]['Score'].values.tolist()
+##    
+##    coefs_aro_sg_round_1 = poly.polyfit(x_aro_sg_round_1, y_aro_sg_round_1, deg=1)
+##    coefs_aro_sg_round_2 = poly.polyfit(x_aro_sg_round_2, y_aro_sg_round_2, deg=1)
+##    coefs_aro_sg_round_3 = poly.polyfit(x_aro_sg_round_3, y_aro_sg_round_3, deg=1)
+##    coefs_aro_sg_round_4 = poly.polyfit(x_aro_sg_round_4, y_aro_sg_round_4, deg=1)
+##
+##    ffit_aro_sg_round_1 = poly.polyval(x_aro_sg_round_1, coefs_aro_sg_round_1)
+##    ffit_aro_sg_round_2 = poly.polyval(x_aro_sg_round_2, coefs_aro_sg_round_2)
+##    ffit_aro_sg_round_3 = poly.polyval(x_aro_sg_round_3, coefs_aro_sg_round_3)
+##    ffit_aro_sg_round_4 = poly.polyval(x_aro_sg_round_4, coefs_aro_sg_round_4)
+##
+##    # Round Score vs Putt SG
+##    x_putt_sg_round_1 = df.loc[1]['Putt SG'].values.tolist()
+##    x_putt_sg_round_2 = df.loc[2]['Putt SG'].values.tolist()
+##    x_putt_sg_round_3 = df.loc[3]['Putt SG'].values.tolist()
+##    x_putt_sg_round_4 = df.loc[4]['Putt SG'].values.tolist()
+##
+##    y_putt_sg_round_1 = df.loc[1]['Score'].values.tolist()
+##    y_putt_sg_round_2 = df.loc[2]['Score'].values.tolist()
+##    y_putt_sg_round_3 = df.loc[3]['Score'].values.tolist()
+##    y_putt_sg_round_4 = df.loc[4]['Score'].values.tolist()
+##    
+##    coefs_putt_sg_round_1 = poly.polyfit(x_putt_sg_round_1, y_putt_sg_round_1, deg=1)
+##    coefs_putt_sg_round_2 = poly.polyfit(x_putt_sg_round_2, y_putt_sg_round_2, deg=1)
+##    coefs_putt_sg_round_3 = poly.polyfit(x_putt_sg_round_3, y_putt_sg_round_3, deg=1)
+##    coefs_putt_sg_round_4 = poly.polyfit(x_putt_sg_round_4, y_putt_sg_round_4, deg=1)
+##
+##    ffit_putt_sg_round_1 = poly.polyval(x_putt_sg_round_1, coefs_putt_sg_round_1)
+##    ffit_putt_sg_round_2 = poly.polyval(x_putt_sg_round_2, coefs_putt_sg_round_2)
+##    ffit_putt_sg_round_3 = poly.polyval(x_putt_sg_round_3, coefs_putt_sg_round_3)
+##    ffit_putt_sg_round_4 = poly.polyval(x_putt_sg_round_4, coefs_putt_sg_round_4)
+##
+##   # Round Score vs Drive Dist
+##    x_drive_dist_round_1 = df.loc[1]['Drive Dist'].values.tolist()
+##    x_drive_dist_round_2 = df.loc[2]['Drive Dist'].values.tolist()
+##    x_drive_dist_round_3 = df.loc[3]['Drive Dist'].values.tolist()
+##    x_drive_dist_round_4 = df.loc[4]['Drive Dist'].values.tolist()
+##
+##    y_drive_dist_round_1 = df.loc[1]['Score'].values.tolist()
+##    y_drive_dist_round_2 = df.loc[2]['Score'].values.tolist()
+##    y_drive_dist_round_3 = df.loc[3]['Score'].values.tolist()
+##    y_drive_dist_round_4 = df.loc[4]['Score'].values.tolist()
+##    
+##    coefs_drive_dist_round_1 = poly.polyfit(x_drive_dist_round_1, y_drive_dist_round_1, deg=1)
+##    coefs_drive_dist_round_2 = poly.polyfit(x_drive_dist_round_2, y_drive_dist_round_2, deg=1)
+##    coefs_drive_dist_round_3 = poly.polyfit(x_drive_dist_round_3, y_drive_dist_round_3, deg=1)
+##    coefs_drive_dist_round_4 = poly.polyfit(x_drive_dist_round_4, y_drive_dist_round_4, deg=1)
+##
+##    ffit_drive_dist_round_1 = poly.polyval(x_drive_dist_round_1, coefs_drive_dist_round_1)
+##    ffit_drive_dist_round_2 = poly.polyval(x_drive_dist_round_2, coefs_drive_dist_round_2)
+##    ffit_drive_dist_round_3 = poly.polyval(x_drive_dist_round_3, coefs_drive_dist_round_3)
+##    ffit_drive_dist_round_4 = poly.polyval(x_drive_dist_round_4, coefs_drive_dist_round_4)
+##
+##    # Round Score vs Drive Acc
+##    x_drive_acc_round_1 = df.loc[1]['Drive Acc'].values.tolist()
+##    x_drive_acc_round_2 = df.loc[2]['Drive Acc'].values.tolist()
+##    x_drive_acc_round_3 = df.loc[3]['Drive Acc'].values.tolist()
+##    x_drive_acc_round_4 = df.loc[4]['Drive Acc'].values.tolist()
+##
+##    y_drive_acc_round_1 = df.loc[1]['Score'].values.tolist()
+##    y_drive_acc_round_2 = df.loc[2]['Score'].values.tolist()
+##    y_drive_acc_round_3 = df.loc[3]['Score'].values.tolist()
+##    y_drive_acc_round_4 = df.loc[4]['Score'].values.tolist()
+##    
+##    coefs_drive_acc_round_1 = poly.polyfit(x_drive_acc_round_1, y_drive_acc_round_1, deg=1)
+##    coefs_drive_acc_round_2 = poly.polyfit(x_drive_acc_round_2, y_drive_acc_round_2, deg=1)
+##    coefs_drive_acc_round_3 = poly.polyfit(x_drive_acc_round_3, y_drive_acc_round_3, deg=1)
+##    coefs_drive_acc_round_4 = poly.polyfit(x_drive_acc_round_4, y_drive_acc_round_4, deg=1)
+##
+##    ffit_drive_acc_round_1 = poly.polyval(x_drive_acc_round_1, coefs_drive_acc_round_1)
+##    ffit_drive_acc_round_2 = poly.polyval(x_drive_acc_round_2, coefs_drive_acc_round_2)
+##    ffit_drive_acc_round_3 = poly.polyval(x_drive_acc_round_3, coefs_drive_acc_round_3)
+##    ffit_drive_acc_round_4 = poly.polyval(x_drive_acc_round_4, coefs_drive_acc_round_4)
+##
+##
+##    plt.figure(figsize=(10,15), dpi=160)
+##    
+##    plt.subplot(6,4,1)
+##    plt.scatter(x_tee_sg_round_1, y_tee_sg_round_1, facecolor='none', edgecolor='gray')
+##    plt.plot(x_tee_sg_round_1, ffit_tee_sg_round_1, c='k')
+##    plt.xlabel('Tee SG'); plt.ylabel('Score'); plt.title('Round 1')
+##    plt.xlim(-0.5,1.5); plt.ylim(-10,15)
+##    plt.subplot(6,4,2)
+##    plt.scatter(x_tee_sg_round_2, y_tee_sg_round_2, facecolor='none', edgecolor='gray')
+##    plt.plot(x_tee_sg_round_2, ffit_tee_sg_round_2, c='k')
+##    plt.xlabel('Tee SG'); plt.title('Round 2')
+##    plt.xlim(-0.5,1.5); plt.ylim(-10,15)
+##    plt.subplot(6,4,3)
+##    plt.scatter(x_tee_sg_round_3, y_tee_sg_round_3, facecolor='none', edgecolor='gray')
+##    plt.plot(x_tee_sg_round_3, ffit_tee_sg_round_3, c='k')
+##    plt.xlabel('Tee SG'); plt.title('Round 3')
+##    plt.xlim(-0.5,1.5); plt.ylim(-10,15)
+##    plt.subplot(6,4,4)
+##    plt.scatter(x_tee_sg_round_4, y_tee_sg_round_4, facecolor='none', edgecolor='gray')
+##    plt.plot(x_tee_sg_round_4, ffit_tee_sg_round_4, c='k')
+##    plt.xlabel('Tee SG'); plt.title('Round 4')
+##    plt.xlim(-0.5,1.5); plt.ylim(-10,15)
+##
+##    plt.subplot(6,4,5)
+##    plt.scatter(x_app_sg_round_1, y_app_sg_round_1, facecolor='none', edgecolor='r')
+##    plt.plot(x_app_sg_round_1, ffit_app_sg_round_1, c='k')
+##    plt.xlabel('App SG'); plt.ylabel('Score')
+##    plt.subplot(6,4,6)
+##    plt.scatter(x_app_sg_round_2, y_app_sg_round_2, facecolor='none', edgecolor='r')
+##    plt.plot(x_app_sg_round_2, ffit_app_sg_round_2, c='k')
+##    plt.xlabel('App SG')
+##    plt.subplot(6,4,7)
+##    plt.scatter(x_app_sg_round_3, y_app_sg_round_3, facecolor='none', edgecolor='r')
+##    plt.plot(x_app_sg_round_3, ffit_app_sg_round_3, c='k')
+##    plt.xlabel('App SG')
+##    plt.subplot(6,4,8)
+##    plt.scatter(x_app_sg_round_4, y_app_sg_round_4, facecolor='none', edgecolor='r')
+##    plt.plot(x_app_sg_round_4, ffit_app_sg_round_4, c='k')
+##    plt.xlabel('App SG')
+##
+##    plt.subplot(6,4,9)
+##    plt.scatter(x_aro_sg_round_1, y_aro_sg_round_1, facecolor='none', edgecolor='m')
+##    plt.plot(x_aro_sg_round_1, ffit_aro_sg_round_1, c='k')
+##    plt.xlabel('Aro SG'); plt.ylabel('Score')
+##    plt.subplot(6,4,10)
+##    plt.scatter(x_aro_sg_round_2, y_aro_sg_round_2, facecolor='none', edgecolor='m')
+##    plt.plot(x_aro_sg_round_2, ffit_aro_sg_round_2, c='k')
+##    plt.xlabel('Aro SG')
+##    plt.subplot(6,4,11)
+##    plt.scatter(x_aro_sg_round_3, y_aro_sg_round_3, facecolor='none', edgecolor='m')
+##    plt.plot(x_aro_sg_round_3, ffit_aro_sg_round_3, c='k')
+##    plt.xlabel('Aro SG')
+##    plt.subplot(6,4,12)
+##    plt.scatter(x_aro_sg_round_4, y_aro_sg_round_4, facecolor='none', edgecolor='m')
+##    plt.plot(x_aro_sg_round_4, ffit_aro_sg_round_4, c='k')
+##    plt.xlabel('Aro SG')
+##    
+##    plt.subplot(6,4,13)
+##    plt.scatter(x_putt_sg_round_1, y_putt_sg_round_1, facecolor='none', edgecolor='orange')
+##    plt.plot(x_putt_sg_round_1, ffit_putt_sg_round_1, c='k')
+##    plt.xlabel('Putt SG'); plt.ylabel('Score')
+##    plt.subplot(6,4,14)
+##    plt.scatter(x_putt_sg_round_2, y_putt_sg_round_2, facecolor='none', edgecolor='orange')
+##    plt.plot(x_putt_sg_round_2, ffit_putt_sg_round_2, c='k')
+##    plt.xlabel('Putt SG')
+##    plt.subplot(6,4,15)
+##    plt.scatter(x_putt_sg_round_3, y_putt_sg_round_3, facecolor='none', edgecolor='orange')
+##    plt.plot(x_putt_sg_round_3, ffit_putt_sg_round_3, c='k')
+##    plt.xlabel('Putt SG')
+##    plt.subplot(6,4,16)
+##    plt.scatter(x_putt_sg_round_4, y_putt_sg_round_4, facecolor='none', edgecolor='orange')
+##    plt.plot(x_putt_sg_round_4, ffit_putt_sg_round_4, c='k')
+##    plt.xlabel('Putt SG')
+##
+##    plt.subplot(6,4,17)
+##    plt.scatter(x_drive_dist_round_1, y_drive_dist_round_1, facecolor='none', edgecolor='b')
+##    plt.plot(x_drive_dist_round_1, ffit_drive_dist_round_1, c='k')
+##    plt.xlabel('Drive Dist'); plt.ylabel('Score')
+##    plt.subplot(6,4,18)
+##    plt.scatter(x_drive_dist_round_2, y_drive_dist_round_2, facecolor='none', edgecolor='b')
+##    plt.plot(x_drive_dist_round_2, ffit_drive_dist_round_2, c='k')
+##    plt.xlabel('Drive Dist')
+##    plt.subplot(6,4,19)
+##    plt.scatter(x_drive_dist_round_3, y_drive_dist_round_3, facecolor='none', edgecolor='b')
+##    plt.plot(x_drive_dist_round_3, ffit_drive_dist_round_3, c='k')
+##    plt.xlabel('Drive Dist')
+##    plt.subplot(6,4,20)
+##    plt.scatter(x_drive_dist_round_4, y_drive_dist_round_4, facecolor='none', edgecolor='b')
+##    plt.plot(x_drive_dist_round_4, ffit_drive_dist_round_4, c='k')
+##    plt.xlabel('Drive Dist')
+##
+##    plt.subplot(6,4,21)
+##    plt.scatter(x_drive_acc_round_1, y_drive_acc_round_1, facecolor='none', edgecolor='g')
+##    plt.plot(x_drive_acc_round_1, ffit_drive_acc_round_1, c='k')
+##    plt.xlabel('Drive Acc'); plt.ylabel('Score')
+##    plt.subplot(6,4,22)
+##    plt.scatter(x_drive_acc_round_2, y_drive_acc_round_2, facecolor='none', edgecolor='g')
+##    plt.plot(x_drive_acc_round_2, ffit_drive_acc_round_2, c='k')
+##    plt.xlabel('Drive Acc')
+##    plt.subplot(6,4,23)
+##    plt.scatter(x_drive_acc_round_3, y_drive_acc_round_3, facecolor='none', edgecolor='g')
+##    plt.plot(x_drive_acc_round_3, ffit_drive_acc_round_3, c='k')
+##    plt.xlabel('Drive Acc')
+##    plt.subplot(6,4,24)
+##    plt.scatter(x_drive_acc_round_4, y_drive_acc_round_4, facecolor='none', edgecolor='g')
+##    plt.plot(x_drive_acc_round_4, ffit_drive_acc_round_4, c='k')
+##    plt.xlabel('Drive Dist')
+##
+##    plt.subplots_adjust(left=0.08, bottom=0.12, wspace=0.18, hspace=0.4)
+##
+##    fig = plt.gcf()
+##    fig.savefig('2018 US Open - Training Set - Round Level - Round Score vs Player Stats.png', bbox_inches='tight')
+##
+##    plt.show()
+    ''' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '''
+
+    ''' Seaborn: Hole-level: Score vs Score CS with Round facet '''
+    df = df_training_set
+    print('df:\n', df)
+    print('df.columns:\n', df.columns)
+    df = df[['Round','Tee SG','App SG','Aro SG','Putt SG','Drive Dist','Drive Acc','Hole SA','Score CS','Score']]
+    sns.lmplot(x='Score CS', y='Score', hue='Round', y_jitter=0.2, data=df, scatter_kws={'alpha':0.6, 's':20, 'edgecolor':'k'})
+    plt.xlim(-7.8,13.8); plt.ylim(-2.5,5)
+    fig = plt.gcf()
+    fig.set_size_inches(4,3.5)
+    fig.savefig('2018 US Open - Training Set - Hole Level - Score vs Score CS hue Round', bbox_inches='tight')
+    plt.show()
+    ''' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '''
+
+    ''' Seaborn Linear Analysis: Score vs Hole SA with Round facet'''
+    sns.lmplot(x='Hole SA', y='Score', col='Round', y_jitter=0.2, data=df,
+               scatter_kws = {'alpha':0.6, 's':20, 'edgecolor':'k'}) # markers=['o','+','s','x'], palette=['k','orange','k','red']
+    plt.show()
+    ''' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '''
+
+    ''' Scatter matrix of SG Player Stats '''
+##    df = df2_training_set[['Tee SG', 'App SG', 'Aro SG', 'Putt SG']]
+##    plt.figure(figsize=(6,6), dpi=160)
+##    scatter_matrix(df)
+##    plt.show()
+    ''' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '''
+
+    ''' Seaborn Linear Analysis: Tee SG vs Driving Distance with Round facet '''
+    df = df2_training_set
+    df.reset_index(inplace=True)
+    df = df[['Round','Tee SG','App SG','Aro SG','Putt SG','Drive Dist','Drive Acc','Score']]
+    #return df
+    print('df.head():\n', df.head())
+    sns.lmplot(x='Drive Dist', y='Tee SG',
+               hue='Round',
+               data=df,
+               scatter_kws = {'alpha':0.6, 's':20, 'edgecolor':'k'}) # markers=['o','+','s','x'], palette=['k','orange','k','red']
+    plt.xlim(276,325); plt.ylim(-0.5,1.25)
+    fig = plt.gcf()
+    fig.set_size_inches(4,3.5)
+    fig.savefig('2018 US Open - Training Set - Round Level - Tee SG vs Drive Dist hue Round', bbox_inches='tight')
+    plt.show()
+    
+    ''' Scatter: Player Stats vs Round Scores '''
+    #sns.set(style="ticks")
+    #print(type(df.Score[0]))
+    #df.drop('Round', axis=1, inplace=True)
+    #print('df.head() after dropping round:\n', df.head())
+    sns.pairplot(df,
+                 vars = ['Tee SG','Drive Dist','Drive Acc','Score'],
+                 hue = 'Round',
+                 diag_kind = 'kde',
+                 plot_kws = {'alpha':0.6, 's':20, 'edgecolor':'k'},
+                 height = 3) # x=['Tee SG','App SG','Aro SG','Putt SG','Drive Dist','Drive Acc'], y=['Score'], 
+
+    fig = plt.gcf()
+    fig.set_size_inches(5,4)
+    fig.savefig('2018 US Open - Training Set - Round Level - Scatter - Score and Tee Stats.png', bbox_inches='tight')
+    plt.show()
+
+    ''' Scatter: Weather vs Round Scores '''
+    df = df2_training_set
+    sns.pairplot(df,
+                 vars = ['Humidity','Wind Speed','Wind','Score'],
+                 hue = 'Round',
+                 diag_kind = 'kde',
+                 plot_kws = {'alpha': 0.6, 's': 20, 'edgecolor': 'k'},
+                 height = 3)
+    fig = plt.gcf()
+    fig.set_size_inches(5,4)
+    fig.savefig('2018 US Open - Training Set - Round Level - Scatter - Score and Weather.png', bbox_inches='tight')
+    plt.show()
+
+    ''' Scatter: Course Conditions vs Round Scores '''
+    sns.pairplot(df,
+                 vars = ['Firm','Speed','Score'],
+                 hue = 'Round',
+                 diag_kind = 'kde',
+                 plot_kws = {'alpha':0.6, 's':20, 'edgecolor':'k'},
+                 height = 3)
+    fig = plt.gcf()
+    fig.set_size_inches(4,3)
+    fig.savefig('2018 US Open - Training Set - Round Level - Scatter - Score and Firm,Speed.png', bbox_inches='tight')
+    plt.show()
+
+
+    ''' Scatter: Course Conditions vs Hole Score '''
+    df = df_training_set
+    sns.pairplot(df,
+                 vars = ['Speed','Firm','Score'],
+                 #hue = 'Round',
+                 diag_kind = 'kde',
+                 plot_kws = {'alpha':0.6, 's':20, 'edgecolor':'k'},
+                 height = 3)
+    plt.show()
+
+
+    sns.lmplot(x='Speed', y='Score', data=df, y_jitter=0.1, scatter_kws={'alpha':0.6, 's':20, 'edgecolor':'k'})
+    plt.show()
+
+    sns.lmplot(x='Firm', y='Score', data=df, y_jitter=0.1, scatter_kws={'alpha':0.6, 's':20, 'edgecolor':'k'})
+    plt.show()
+                 
+    ''' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '''
     
     return df
-
-
-
 
 
 
@@ -2464,22 +3319,13 @@ def MLHoleClassification(df_training_set):
     ''' Class counts: '''
     print('df_training_set Score counts:\n', df_training_set.Score.value_counts())
 
-    ''' Checking for unbalanced dataset in non-scientific way: '''
-##    df_score_counts = df_training_set.Score.value_counts()
-##    df_score_counts_len = len(df_score_counts)
-##    score_counts_sum = df_score_counts.sum()
-##    for x in df_score_counts:
-##        score_pct = x/score_counts_sum*100
-##        # If scores are multiclass and one of them accounts for over 50% of the data:
-##        if df_score_counts_len > 2 and score_pct > 50:
-##            print('Warning: Possible unbalanced dataset:\n Class level',x,'is',score_pct,'% of dataset')
 
     ''' Checking for a large percentage of pars: '''
     df_score_par_pct = df_training_set.Score.value_counts(normalize=True).iloc[0]*100
-    print('df_training_set.Score Par pct: %2f:' % df_score_par_pct)
+    print('df_training_set.Score Par pct: {0:.2f}%'.format(df_score_par_pct))
     if df_score_par_pct > 50:
         print('~~~~~~~~~~~~~~~~~~~~~~~~~Warning: Possible unbalanced dataset:')
-        print('Pars comprise %.2f of df_training_set' % df_score_par_pct)
+        print('Pars comprise {0:.2f}% of df_training_set'.format(df_score_par_pct))
 
 
 
@@ -2515,6 +3361,8 @@ def MLHoleClassification(df_training_set):
         #print('Unique minority upsampled:\n', df_minority_upsampled_unique)
         df_minority_upsampled = df_minority_upsampled.append(df_minority_upsampled_unique)
 
+    ''' Making a list of majority scores only. Useful if you want to exclude minority
+        scores (e.g. outliers) to improve the models' performance metrics '''
     majority_score_list = []
     for x in df_score_counts_majority.iteritems():
           majority_score, majority_score_count = x
@@ -2539,9 +3387,8 @@ def MLHoleClassification(df_training_set):
 ##    df_training_set = df_training_set[df_training_set['New OWGR'] < 300]
 
 
-
-    ''' One-hot encoding Hole numbers '''
-    df = df_training_set.drop(['Player','DateTime','Hole','New OWGR','OWGR Diff','Temperature','Humidity'], axis=1)
+    ''' Dropping features, and then nne-hot encoding the categorical features: '''
+    df = df_training_set.drop(['Player','DateTime','Hole','Pin','Hole Shape','New OWGR','OWGR Diff','Humidity'], axis=1)
     df_X = df.drop(['Score'], axis=1)
 
     # One-hot encode hole:
@@ -2549,6 +3396,8 @@ def MLHoleClassification(df_training_set):
         df_X = pd.get_dummies(df_X, columns=['Hole'], drop_first=True) # One-hot encoding Hole number
     if 'Pin' in df_X.columns:
         df_X = pd.get_dummies(df_X, columns=['Pin'], drop_first=True) # One-hot encoding Pin location
+    if 'Hole Shape' in df_X.columns:
+        df_X = pd.get_dummies(df_X, columns=['Hole Shape'], drop_first=True) # One-hot encoding Hole Shape
 
     df_y = df['Score']
 
@@ -2558,11 +3407,11 @@ def MLHoleClassification(df_training_set):
     print('df_y head:\n', df_y.head())
 
     X = df_X.values.astype(float)
+    print('X[0:2] before feature scaling:\n', X[0:10])
     y = df_y.values.astype(int)
     y = y.astype(str)
 
-    print('X[0:10]:\n', X[0:10])
-    print('y[0:10]:\n', y[0:10])
+    print('y[0:2]:\n', y[0:10])
     '''~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ '''
 
 
@@ -2577,6 +3426,26 @@ def MLHoleClassification(df_training_set):
     seed = 7
     X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, test_size=validation_size, random_state=seed)
 
+    ''' Feature scaling: '''
+    scaler = StandardScaler()
+    scaler = scaler.fit(X_train)
+    X_train = scaler.transform(X_train)
+    print('X_train[0:2] after feature scaling:\n', X_train[0:2])
+    X_test = scaler.transform(X_test)
+    print('X_test[0:2] after feature scaling:\n', X_test[0:2])
+    ''' ~~~~~~~~~~~~~~ '''
+
+    ''' PCA Transform: '''
+    print('Number of features before PCA fit of X_train = {0:5d}'.format(len(X_train[0])))
+    pca = PCA(0.95)
+    pca = pca.fit(X_train)
+    print('Number of components after PCA fit of X_train = {0:5d}'.format(pca.n_components_))
+    X_train = pca.transform(X_train)
+    print('X_train[0:2] after PCA:\n', X_train[0:2])
+    X_test = pca.transform(X_test)
+    print('X_test[0:2] after PCA:\n', X_test[0:2])
+    ''' ~~~~~~~~~~~~~~ '''
+
     print('y_train[0:20]:\n', y_train[0:20])
     df_y_train = pd.Series(y_train) # Turning them into dataframes 
     df_y_test = pd.Series(y_test)
@@ -2585,11 +3454,11 @@ def MLHoleClassification(df_training_set):
 ##    y_train_par_pct = collections.Counter(y_train).iloc[0]*100
     y_test_par_pct = df_y_test.value_counts(normalize=True).iloc[0]*100
     y_test_par_pct_collections = collections.Counter(y_test)
-    print('y_train Par pct: %.2f:' % y_train_par_pct)
-    print('y_test Par pct: %.2f:' % y_test_par_pct)
+    print('y_train Par pct: {0:.2f}%'.format(y_train_par_pct))
+    print('y_test Par pct: {0:.2f}%'.format(y_test_par_pct))
     print('y_test_par_pct_collections:', y_test_par_pct_collections)
 
-    
+    scoring = 'accuracy'
     scoring = 'neg_log_loss'
 
     # Spot Check Algorithms
@@ -2602,7 +3471,7 @@ def MLHoleClassification(df_training_set):
 ##    models.append(('SVM Balanced', SVC(kernel='linear',
 ##                              class_weight='balanced'))) # Penalize
 ##    models.append(('SVM', SVC()))
-    models.append(('RF', RandomForestClassifier(n_estimators=100)))
+    models.append(('RF', RandomForestClassifier(n_estimators=50)))
     models.append(('GBC', GradientBoostingClassifier()))
     # Evaluate each model in turn
     results = []
@@ -2662,6 +3531,7 @@ def MLHoleClassification(df_training_set):
     rf.fit(X_train, y_train)
     y_pred = rf.predict(X_test)
     y_pred_prob = rf.predict_proba(X_test)
+    print('y_pred_prob:', y_pred_prob)
     print('\nRandom Forest Predictions ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
     print('RF - Unique y_pred:', np.unique(y_pred))
     print('RF - Accuracy:', accuracy_score(y_test, y_pred))
@@ -2669,7 +3539,11 @@ def MLHoleClassification(df_training_set):
     print('RF - Weighted Precision:', precision_score(y_test, y_pred, average='weighted'))
     print('RF - y_pred_prob[0:2]:\n', y_pred_prob)
     print('RF - y_pred[0:2]:\n', y_pred)
-    print('RF - Log Loss:', log_loss(y_test, y_pred_prob))
+##    rf_test_labels_list = list(set(y_test))
+##    print('Classes in y_test:', rf_test_labels_list)
+##    rf_pred_labels_list = list(set(y_pred))
+##    print('Classes in y_pred:', rf_pred_labels_list)
+##    print('RF - Log Loss:', log_loss(y_test, y_pred_prob))
     
 
     # Predict with Gradient Boosting:
@@ -2677,13 +3551,16 @@ def MLHoleClassification(df_training_set):
     gbt.fit(X_train, y_train)
     y_pred = gbt.predict(X_test)
     y_pred_prob = gbt.predict_proba(X_test)
+    print('y_pred_prob:', y_pred_prob)
     print('\nGradient Boosting Predictions ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
     print('GBT - Unique y_pred:', np.unique(y_pred))
     print('GBT - Accuracy:', accuracy_score(y_test, y_pred))
     print('GBT - Micro Precision:', precision_score(y_test, y_pred, average='micro'))
     print('GBT - Weighted Precision:', precision_score(y_test, y_pred, average='weighted'))
     print('GBT - y_pred_prob[0:10]:\n', y_pred_prob)
-    print('GBT - Log Loss:', log_loss(y_test, y_pred_prob))
+##    gbt_pred_labels_list = list(set(y_pred))
+##    print('Classes in y_pred:', gbt_pred_labels_list)
+##    print('RF - Log Loss:', log_loss(y_test, y_pred_prob))
 
     ''' Plotting y_test vs y_pred '''
     y_test.astype(int); y_pred.astype(int)
@@ -2849,10 +3726,10 @@ def MLRoundRegression(df2_training_set):
     y_pred = lr.predict(X_test)
     print('\nLinear Regression Predictions ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
 ##  Every lin reg prediction is unique, no need to look at this: print('LinReg - Unique y_pred:', np.unique(y_pred))
-    print('LinReg - Variance score: %.2f' % metrics.r2_score(y_test, y_pred))
-    print('LinReg - Mean Squ Error: %.2f' % metrics.mean_squared_error(y_test, y_pred))
-    print('LinReg - Mean Abs Error: %.2f' % metrics.mean_absolute_error(y_test, y_pred))
-    print('LinReg - Median Abs Err: %.2f' % metrics.median_absolute_error(y_test, y_pred))
+    print('LinReg - Variance score: {0:.2f}'.format(metrics.r2_score(y_test, y_pred)))
+    print('LinReg - Mean Squ Error: {0:.2f}'.format(metrics.mean_squared_error(y_test, y_pred)))
+    print('LinReg - Mean Abs Error: {0:.2f}'.format(metrics.mean_absolute_error(y_test, y_pred)))
+    print('LinReg - Median Abs Err: {0:.2f}'.format(median_absolute_error(y_test, y_pred)))
 
     fig.suptitle('Predictions')
 
@@ -3185,7 +4062,7 @@ def KerasNN(df_training_set):
     ''' Evaluating our model (estimator) on the dataset (X and dummy_y) using
         a 10-fold cross-validation procedure (kfold): '''
     results = cross_val_score(estimator, X, dummy_y, cv=kfold)
-    print('Baseline: %.2f%% (%.2f%%)' % (results.mean()*100, results.std()*100))
+    print('Baseline: {0:.2f} ({1:.2f})'.format(results.mean()*100, results.std()*100))
 ##    ce = keras.losses.categorical_crossentropy(y_true, y_pred)
 ##    print('Crossentropy: %.2f' % ce)
 
@@ -3620,11 +4497,15 @@ def PickleInScorecards(scorecards_pkl):
     return df_scorecards
                                                           
 
-def PickleIn_SC_TT_OWGR(scorecards_pkl, teetimes_pkl, owgr_pkl, year_pkl, date_pkl):
+def PickleIn_SC_TT_PS_CS_OWGR(scorecards_pkl, teetimes_pkl, playerstats_pkl, coursestats_pkl, owgr_pkl, year_pkl, date_pkl):
     df_scorecards = pd.read_pickle(scorecards_pkl)
     print('df: US Open ESPN scorecards:\n', df_scorecards)
     df_tee_times = pd.read_pickle(teetimes_pkl)
     print('df: US Open Tee Times:\n', df_tee_times)
+    df_player_stats = pd.read_pickle(playerstats_pkl)
+    print('df: US Open Player Stats:\n', df_player_stats)
+    df_course_stats = pd.read_pickle(coursestats_pkl)
+    print('df: US Open Course Stats:\n', df_course_stats)
     df_owgr = pd.read_pickle(owgr_pkl)
     print('df: US Open OWGR:\n', df_owgr)
     
@@ -3633,7 +4514,7 @@ def PickleIn_SC_TT_OWGR(scorecards_pkl, teetimes_pkl, owgr_pkl, year_pkl, date_p
     with open(date_pkl, 'rb') as dp:
         date_list = pickle.load(dp)
     
-    return df_scorecards, df_tee_times, df_owgr, year_list, date_list
+    return df_scorecards, df_tee_times, df_player_stats, df_course_stats, df_owgr, year_list, date_list
 
 
 def PickleInRoundProgress(round_progress_pkl, round_progress_final_score_pkl):
@@ -3699,10 +4580,6 @@ def PickleInTrainingSet(training_set_pkl, training_set_2_pkl):
 #year_list, date_list = PickleInYearDateLists('year_list.pkl','date_list.pkl')
 #df_tee_times, player_list = GetTeeTimes(year_list, date_list)
 
-####  PLAYER STATS:
-player_list = PickleInPlayerList('player_list.pkl')
-#df = GetPlayerStatsESPN(player_list, '2018_us_open_player_stats_espn.csv')
-df = GetPlayerStatsPGATourWebsite(player_list, '2018_player_stats_pga.csv','2018_player_stats_euro.csv')
 
 ####  OWGR:
 ''' Imports CSV of a particular week's OWGR (csv file) for all of the world's players, converts to tournament
@@ -3711,6 +4588,13 @@ df = GetPlayerStatsPGATourWebsite(player_list, '2018_player_stats_pga.csv','2018
 ''' Note: GetOWGR requires a tournament specific tee times player list, and is therefore run after GetTeeTimes '''
 #player_list = PickleInPlayerList('player_list.pkl')
 #df_owgr_new = GetOWGR(player_list, '2018_us_open_owgr_wk23.csv', '2018_us_open_owgr_wk19.csv') # Provide owgr csv file name
+
+
+####  PLAYER STATS and COURSE STATS:
+''' Gets player statistics from  '''
+#player_list = PickleInPlayerList('player_list.pkl')
+#df_player_stats = GetPlayerStats(player_list, '2018_player_stats_PGA_csv', '2018_player_stats_euro_csv')
+#df_course_stats = GetCourseStats('2018_us_open_course_stats_csv')
 
 
 ####  SCORECARDS:
@@ -3724,11 +4608,11 @@ df = GetPlayerStatsPGATourWebsite(player_list, '2018_player_stats_pga.csv','2018
 ####  ROUND PROGRESSION:
 ''' First pickle in Scorecards (SC), Tee Times (TT) and Tournament specific OWGR (OWGR). Once
     these are in, OWGR is inserted into df_round_progress in preparation for running the data
-    through AI()'''
+    through AI() '''
 ''' Why am I returning df_scorecards and df_tee_times in GetRoundProgress? I don't believe these
     dataframes are being modified here. '''
-#df_scorecards, df_tee_times, df_owgr, year_list, date_list = PickleIn_SC_TT_OWGR('us_open_scorecards.pickle','us_open_tee_times.pickle','us_open_owgr.pickle','year_list.pkl','date_list.pkl')
-#df_round_progress, df_round_progress_final_score, df_scorecards, df_tee_times, df_owgr = GetRoundProgress(df_scorecards, df_tee_times, df_owgr, year_list, date_list) # df_scorecards and df_tee_times are modified in GetRoundProgress
+#df_scorecards, df_tee_times, df_player_stats, df_course_stats, df_owgr, year_list, date_list = PickleIn_SC_TT_PS_CS_OWGR('us_open_scorecards.pickle','us_open_tee_times.pickle','us_open_player_stats.pickle','us_open_course_stats.pickle','us_open_owgr.pickle','year_list.pkl','date_list.pkl')
+#df_round_progress, df_round_progress_final_score, df_scorecards, df_tee_times, df_owgr = GetRoundProgress(df_scorecards, df_tee_times, df_player_stats, df_course_stats, df_owgr, year_list, date_list) # df_scorecards and df_tee_times are modified in GetRoundProgress
 
 ####  AI:
 ''' Build the training set from Round Progress and Weather: '''
@@ -3736,11 +4620,15 @@ df = GetPlayerStatsPGATourWebsite(player_list, '2018_player_stats_pga.csv','2018
 #df_training_set, df2_training_set = MakeTrainingSet(df_proc_imp_weather, df_round_progress, df_round_progress_final_score, year_list, date_list)
 #dfs = RoundProgressEDA(df_round_progress)
 ''' Machine learning: '''
-#df_training_set, df2_training_set = PickleInTrainingSet('us_open_training_set.pickle','us_open_training_set_2.pickle')
-#df = TrainingSetEDA(df_training_set) # Plots Temp, Wind Speed, OWGR, etc vs Date-Time
+df_training_set, df2_training_set = PickleInTrainingSet('us_open_training_set.pickle','us_open_training_set_2.pickle')
+df = TrainingSetEDA(df_training_set) # Plots Temp, Wind Speed, OWGR, etc vs Date-Time
 #results, X_test, y_test, y_pred, y_pred_prob = MLHoleClassification(df_training_set)
 #results, X_test, y_test, y_pred = MLRoundRegression(df2_training_set)
 #results, X_test, y_test, y_pred = MLRoundClassification(df2_training_set)
+
+
+#### Other funcs:
+#hole_sa_list = RealHoleSA(df_round_progress)
 
 ''' Keras Deep Learning '''
 #results = KerasNN(df_training_set)
